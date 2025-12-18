@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital I/O - MedIoT Controller</title>
+    <link rel="icon" type="image/png" href="/logoMeditech32.png">
+    <link rel="stylesheet" href="/bootstrap.min.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container">
+            <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 50px; height: 50px; margin-right: 15px;">
+            <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+                    <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+                    <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+                    <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+                    <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+                    <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div style="height: 80px;"></div>
+
+    <div class="container mt-4">
+        <div class="card mx-auto">
+            <h2 class="text-center mb-4">Digital Input Configuration</h2>
+            <form id="digitalIO">
+                <div class="row center-form">
+
+                    <div class="col-md-5">
+                        <div class="mb-3">
+                            <label for="inputPin" class="form-label">Select Input Pin:</label>
+                            <select class="form-control" id="inputPin" name="inputPin">
+                                <option>DI1</option>
+                                <option>DI2</option>
+                                <option>DI3</option>
+                                <option>DI4</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="nameDI" class="form-label">Sensor Name / Code:</label>
+                            <input type="text" class="form-control" id="nameDI" name="nameDI"
+                                placeholder="Enter Sensor Name">
+                        </div>
+
+                        <div class="mb-3" id="intervalTimeDiv" style="display: none;">
+                            <label for="intervalTime" class="form-label">Interval Time (s):</label>
+                            <input type="number" class="form-control" id="intervalTime" name="intervalTime"
+                                placeholder="Enter Interval Time" step="0.1" min="0">
+                        </div>
+
+                        <div class="mb-3" id="inputInversionDiv">
+                            <div class="d-flex align-items-center justify-content-between border rounded p-2">
+                                <label class="form-label mb-0">Input Inversion:</label>
+                                <label class="switch">
+                                    <input type="checkbox" id="inputInversion" name="inputInversion" />
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5">
+                        <div class="mb-3">
+                            <label for="taskMode" class="form-label">Task Configuration:</label>
+                            <select class="form-control" id="taskMode" name="taskMode">
+                                <option>Normal</option>
+                                <option>Counting</option>
+                                <option>Cycle Time</option>
+                                <option>Run Time</option>
+                                <option>Pulse Mode</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3" id="inputStateDiv">
+                            <label for="inputState" class="form-label">Active State:</label>
+                            <select class="form-control" id="inputState" name="inputState">
+                                <option>High</option>
+                                <option>Low</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3" id="conversionFactorDiv" style="display: none;">
+                            <label for="conversionFactor" class="form-label">Conversion Factor:</label>
+                            <input type="number" class="form-control" id="conversionFactor" name="conversionFactor"
+                                placeholder="Enter Conversion Factor" step="0.1" min="0">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="currentValue" class="form-label">Current Value:</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control text-center fw-bold" id="currentValue"
+                                    name="currentValue" readonly value="-" />
+                                <span class="input-group-text" id="unit">-</span>
+                                <button type="button" id="resetValue" class="btn btn-outline-secondary"
+                                    title="Reset Counter/Timer">
+                                    <i class="fas fa-undo"></i> Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="d-flex justify-content-center">
+                    <button type="button" id="submitDigital" class="btn btn-primary btn-lg px-5">
+                        <i class="fas fa-save"></i> Save Configuration
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="popup">
+        <h2 id="headPopup">Form Submitted!</h2>
+        <p id="textPopup">Thank you for submitting the form.</p>
+        <button id="buttonPopupInt" class="btn btn-primary">Close</button>
+    </div>
+
+    <div class="container mt-3 mb-5 text-center">
+        <div class="form-check form-switch d-inline-block">
+            <input class="form-check-input" type="checkbox" id="themeToggle">
+            <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+        </div>
+    </div>
+
+    <script src="/bootstrap.bundle.min.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/digital_IO.js"></script>
+</body>
+
+</html>

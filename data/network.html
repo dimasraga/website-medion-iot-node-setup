@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedIoT Configuration</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <script src="https://code.highcharts.com/highcharts.js"
+    onerror="this.onerror=null; this.src='/js/highcharts.min.js'"></script>
+  <script src="/data/js/highcharts.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg fixed-top">
+    <div class="container">
+      <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 50px; height: 50px; margin-right: 15px;">
+      <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+          <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+          <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+          <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+          <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 80px;"></div>
+
+  <div class="container mt-4">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Network Interface & Protocol Configuration</h2>
+      <form id="net-interface">
+
+        <div class="row center-form">
+          <label for="loggerMode"><b style="font-size: 1.2rem;">Network Interface:</b></label>
+          <br>
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="networkMode">Network Mode:</label>
+              <select class="form-control" id="networkMode" name="networkMode">
+                <option>Select network mode</option>
+                <option>WiFi</option>
+                <option>Ethernet</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="ssid">SSID:</label>
+              <input type="text" class="form-control" id="ssid" name="ssid" placeholder="Enter WiFi SSID" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="password">Password:</label>
+              <input type="text" class="form-control" id="password" name="password" placeholder="Enter WiFi Password" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="apSsid">AP Device SSID:</label>
+              <input type="text" class="form-control" id="apSsid" name="apSsid" placeholder="Enter AP SSID" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="apPassword">AP Device Password:</label>
+              <input type="text" class="form-control" id="apPassword" name="apPassword"
+                placeholder="Enter AP Password" />
+            </div>
+          </div>
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="dhcpMode">DHCP Enable:</label>
+              <select class="form-control" id="dhcpMode" name="dhcpMode">
+                <option>Select DHCP mode</option>
+                <option>Static</option>
+                <option>DHCP</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="ipAddress">IP Address:</label>
+              <input type="text" class="form-control" id="ipAddress" name="ipAddress" placeholder="Enter IP Address"
+                pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="subnet">Subnet Mask:</label>
+              <input type="text" class="form-control" id="subnet" name="subnet" placeholder="Enter Subnet Mask"
+                pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="ipGateway">IP Gateway:</label>
+              <input type="text" class="form-control" id="ipGateway" name="ipGateway" placeholder="Enter Gateway IP"
+                pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="ipDNS">IP DNS:</label>
+              <input type="text" class="form-control" id="ipDNS" name="ipDNS" placeholder="Enter DNS IP"
+                pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$" />
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="col-md-5 mx-auto mb-3">
+          <div class="d-flex align-items-center justify-content-between">
+            <label for="loggerMode" class="fw-bold">Data Logger Mode:</label>
+            <label class="switch">
+              <input type="checkbox" id="loggerMode" name="loggerMode" />
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row center-form">
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="protocolMode">Protocol Mode:</label>
+              <select class="form-control" id="protocolMode" name="protocolMode">
+                <option>Select protocol mode</option>
+                <option>MQTT</option>
+                <option>HTTP</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="endpoint">Broker/Server Endpoint:</label>
+              <input type="text" class="form-control" id="endpoint" name="endpoint"
+                placeholder="Enter Broker/Server Endpoint" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="port">Port:</label>
+              <input type="number" class="form-control" id="port" name="port" min="0" placeholder="Enter Port Number"
+                required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="pubTopic">Publish Topic:</label>
+              <input type="text" class="form-control" id="pubTopic" name="pubTopic" placeholder="Enter Publish Topic" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="subTopic">Subscribe Topic:</label>
+              <input type="text" class="form-control" id="subTopic" name="subTopic"
+                placeholder="Enter Subscribe Topic" />
+            </div>
+          </div>
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="mqttUsername">MQTT/API Username:</label>
+              <input type="text" class="form-control" id="mqttUsername" name="mqttUsername"
+                placeholder="Enter MQTT/API username" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="mqttPass">MQTT/API Password:</label>
+              <input type="text" class="form-control" id="mqttPass" name="mqttPass"
+                placeholder="Enter MQTT/API Password" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="sendTrig">Transmission Trigger:</label>
+              <select class="form-control" id="sendTrig" name="sendTrig">
+                <option>Select transmission trigger</option>
+                <option>Time/interval</option>
+                <option>DI1 Rising Edge</option>
+                <option>DI2 Rising Edge</option>
+                <option>DI3 Rising Edge</option>
+                <option>DI4 Rising Edge</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="sendInterval">Send Interval (s):</label>
+              <input type="number" step="1" min="1" class="form-control" id="sendInterval" name="sendInterval"
+                placeholder="Enter send interval in seconds" />
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="col-md-5 mx-auto mb-3">
+          <div class="d-flex align-items-center justify-content-between">
+            <label for="modbusMode" class="fw-bold">Master/Slave Mode:</label>
+            <label class="switch">
+              <input type="checkbox" id="modbusMode" name="modbusMode" />
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row center-form">
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="protocolMode2">Protocol Mode:</label>
+              <select class="form-control" id="protocolMode2" name="protocolMode2">
+                <option>Select protocol mode</option>
+                <option>Modbus TCP/IP</option>
+                <option>Modbus RTU</option>
+                <option>Modbus RTU + TCP/IP</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="modbusSlaveID">Modbus RTU Slave ID:</label>
+              <input type="number" class="form-control" id="modbusSlaveID" name="modbusSlaveID" min="1" max="254"
+                placeholder="Enter Slave ID" />
+            </div>
+          </div>
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="modbusPort">Modbus TCP/IP Port:</label>
+              <input type="number" class="form-control" id="modbusPort" name="modbusPort" min="0"
+                placeholder="Enter Port Number" />
+            </div>
+            <br>
+            <div class="d-flex justify-content-center gap-2">
+              <input type="button" id="submitNetwork" value="Save" class="btn btn-primary" />
+              <input type="button" id="buttonRestart" value="Restart" class="btn btn-outline-secondary" />
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <div class="popup" id="popupSubmit">
+        <h2 id="headPopup">Form Submitted!</h2>
+        <p id="textPopup">Thank you for submitting the form.</p>
+        <button id="buttonPopupInt" class="btn btn-primary">Close</button>
+      </div>
+
+      <div class="popup" id="popupRestart">
+        <h2 id="headPopupRestart">Restart IoT Node!</h2>
+        <p id="textPopup">Are you sure to restart the device?</p>
+        <div class="d-flex justify-content-center gap-2 mt-3">
+          <button id="buttonYes" class="btn btn-danger">Yes</button>
+          <button id="buttonNo" class="btn btn-secondary">No</button>
+        </div>
+      </div>
+
+      <div class="popup" id="popupInformation">
+        <h2 id="headPopupInformation">Please wait...</h2>
+        <p id="textPopup">Device is restarting. Click the button below to check if it has been done.</p>
+        <button id="buttonRedirect" class="btn btn-primary">Home</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-4 mb-5">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">ERP Configuration</h2>
+      <form id="erp-interface">
+        <div class="mb-3">
+          <label class="form-label" for="erpUrl">ERP URL</label>
+          <input type="text" class="form-control" id="erpUrl" name="erpUrl" placeholder="Enter ERP URL" />
+        </div>
+        <div class="row">
+          <div class="col-sm-6 mb-3">
+            <label class="form-label" for="erpUsername">Username</label>
+            <input type="text" class="form-control" id="erpUsername" name="erpUsername"
+              placeholder="Enter ERP Username" />
+          </div>
+          <div class="col-sm-6 mb-3">
+            <label class="form-label" for="erpPassword">Password</label>
+            <input type="text" class="form-control" id="erpPassword" name="erpPassword"
+              placeholder="Enter ERP Password" />
+          </div>
+        </div>
+        <div class="text-center">
+          <button type="button" class="btn btn-primary" id="submitErp">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5 text-center">
+    <div class="form-check form-switch d-inline-block">
+      <input class="form-check-input" type="checkbox" id="themeToggle">
+      <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+    </div>
+  </div>
+
+  <script src="/bootstrap.bundle.min.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/network.js"></script>
+</body>
+
+</html>

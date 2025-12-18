@@ -1,0 +1,54 @@
+{
+    "AI1":
+        {   
+            "name":"test", 
+            "inputType":"0-10 V",
+            "filter":0,
+            "filterPeriod":0.1,
+            "scaling":1,
+            "lowLimit":0,
+            "highLimit":5,
+            "callibration":0,
+            "mValue":1,
+            "cValue":0
+        },
+    "AI2":
+        {   
+            "name":"", 
+            "inputType":"0-10 V",
+            "filter":0,
+            "filterPeriod":0.1,
+            "scaling":1,
+            "lowLimit":0,
+            "highLimit":5,
+            "callibration":0,
+            "mValue":1,
+            "cValue":0
+        },
+    "AI3":
+        {   
+            "name":"", 
+            "inputType":"0-10 V",
+            "filter":0,
+            "filterPeriod":0.1,
+            "scaling":1,
+            "lowLimit":0,
+            "highLimit":5,
+            "callibration":0,
+            "mValue":1,
+            "cValue":0
+        },
+    "AI4":
+        {
+            "name":"", 
+            "inputType":"0-10 V",
+            "filter":0,
+            "filterPeriod":0.1,
+            "scaling":1,
+            "lowLimit":0,
+            "highLimit":5,
+            "callibration":0,
+            "mValue":1,
+            "cValue":0
+        }
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OTA Update - IoT Data Logger</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg fixed-top">
+    <div class="container">
+      <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 75px; height: 75px; margin-right: 10px;">
+      <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+          <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+          <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+          <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+          <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 100px;"></div>
+  <div class="container d-flex justify-content-center mt-5">
+    <div class="ota-container">
+      <div class="header">
+        <h2>OTA Firmware Update</h2>
+        <p>Upload new firmware or SPIFFS image to update your device</p>
+      </div>
+      <div class="upload-area" id="uploadArea">
+        <div class="upload-icon">📤</div>
+        <h5>Drag & Drop your file here</h5>
+        <p class="text-muted">or click to browse</p>
+        <input type="file" id="fileInput" accept=".bin" style="display: none;">
+      </div>
+      <div class="file-info" id="fileInfo">
+        <div class="info-item"><span class="info-label">File Name:</span><span class="info-value" id="fileName">-</span>
+        </div>
+        <div class="info-item"><span class="info-label">File Size:</span><span class="info-value" id="fileSize">-</span>
+        </div>
+        <div class="info-item"><span class="info-label">Update Type:</span><span class="info-value"
+            id="updateType">-</span></div>
+      </div>
+      <div class="progress" id="progressBar">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"
+          id="progressBarInner">0%</div>
+      </div>
+      <button class="btn btn-upload" id="uploadBtn" disabled>Upload Firmware</button>
+      <div id="alertContainer"></div>
+      <div class="system-info">
+        <h5>📊 System Information</h5>
+        <div class="info-item"><span class="info-label">Free Heap:</span><span class="info-value"
+            id="freeHeap">Loading...</span></div>
+        <div class="info-item"><span class="info-label">Sketch Size:</span><span class="info-value"
+            id="sketchSize">Loading...</span></div>
+        <div class="info-item"><span class="info-label">Free Sketch Space:</span><span class="info-value"
+            id="freeSketchSpace">Loading...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5 text-center">
+    <div class="form-check form-switch d-inline-block">
+      <input class="form-check-input" type="checkbox" id="themeToggle">
+      <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+    </div>
+  </div>
+  <script src="/bootstrap.bundle.min.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/UpdateOTA.js"></script>
+</body>
+
+</html>

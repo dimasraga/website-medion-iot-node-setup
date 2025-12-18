@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - MedIoT Controller</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <div class="login-wrapper">
+
+    <div class="card login-card">
+
+      <div class="d-flex justify-content-center">
+        <img src="/logoMeditech256.png" alt="Logo" class="login-logo" />
+      </div>
+
+      <h3 class="mb-1">Welcome Back</h3>
+      <p class="text-muted mb-4">Sign in to continue</p>
+
+      <form action="/login" method="POST" id="loginForm">
+        <div class="mb-3 text-start">
+          <label for="username" class="form-label">Username</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="fas fa-user"></i></span>
+            <input type="text" class="form-control" id="username" name="username" placeholder="Enter username" required
+              autocomplete="username" />
+          </div>
+        </div>
+
+        <div class="mb-3 text-start">
+          <label for="password" class="form-label">Password</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="fas fa-lock"></i></span>
+            <input type="password" class="form-control" id="password" name="password" placeholder="Enter password"
+              required autocomplete="current-password" />
+          </div>
+        </div>
+
+        <button type="submit" id="loginBtn" class="btn btn-primary w-100 py-2 mt-2">
+          Login
+        </button>
+
+        <div class="alert alert-danger error-alert" id="errorMessage" role="alert">
+          <i class="fas fa-exclamation-circle"></i> Invalid username or password!
+        </div>
+      </form>
+
+      <div class="mt-4 text-muted" style="font-size: 0.8rem;">
+        ESP32 Modbus Management System
+      </div>
+    </div>
+  </div>
+
+  <script src="js/login.js"></script>
+</body>
+
+</html>

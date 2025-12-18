@@ -1,0 +1,18 @@
+{
+    "DI1":
+        {"name":"IOTN-002_TIME002", "invers":0, "taskMode":"Cycle Time", "inputState":"High", "intervalTime":0, "conversionFactor":0},
+    "DI2":
+        {"name":"IOTN-002_TIME001", "invers":0, "taskMode":"Run Time", "inputState":"Low", "intervalTime":0, "conversionFactor":0},
+    "DI3":
+        {"name":"IOTN-002_DIGI001", "invers":0, "taskMode":"Counting", "inputState":"High", "intervalTime":0, "conversionFactor":0},
+    "DI4":
+        {"name":"PULSE-002", "invers":0, "taskMode":"Pulse Mode", "inputState":"Low", "intervalTime":1000, "conversionFactor":1},
+    "DO1":
+        {"name":"out1", "invers":0},
+    "DO2":
+        {"name":"out2", "invers":1},
+    "DO3":
+        {"name":"out3", "invers":0},
+    "DO4":
+        {"name":"out4", "invers":1}
+}

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" class="h-100">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MedIoT Configuration</title>
+    <link rel="icon" type="image/png" href="/logoMeditech32.png" />
+    <link rel="stylesheet" href="/bootstrap.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+  </head>
+  <style>
+    /* Root variables for light theme */
+    :root {
+      --bg-color: #f9f9f9; /* #eceaea; ffffff */
+      --text-color: #000000;
+      --card-bg-color: #eceaea; /* 9da6af;f9f9f9 Light theme card color */
+      --navbar-bg-color: #9da6af; /* #343a40; f8f9fa */
+      --button-bg-color: #007bff;
+      --button-text-color: #ffffff;
+    }
+
+    /* Dark theme variables */
+    [data-theme="dark"] {
+      --bg-color: #212529;
+      --text-color: #ffffff;
+      --card-bg-color: #343a40;
+      --navbar-bg-color: #495057;
+      --button-bg-color: #17a2b8;
+      --button-text-color: #ffffff;
+      /*--bg-color: #e3f2fd; /* Sky blue background */
+      /*--text-color: #0d47a1; /* Dark blue text */
+      /*--card-bg-color: #bbdefb; /* Light sky blue for cards */
+      /*--navbar-bg-color: #90caf9; /* Slightly darker sky blue for navbar */
+      /*--button-bg-color: #1976d2; /* Strong blue for buttons */
+      /*--button-text-color: #ffffff; /* White text for buttons */
+      /*--input-border-color: #64b5f6; /* Blue border for form inputs */
+    }
+
+    /* Apply theme variables */
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .custom-card,
+    .card {
+      background-color: var(--card-bg-color);
+      color: var(--text-color);
+      border: 1px solid rgba(255, 255, 255, 0.1); /* Subtle border for separation */
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .navbar {
+      background-color: var(--navbar-bg-color) !important;
+      color: var(--text-color);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .btn {
+      background-color: var(--button-bg-color);
+      color: var(--button-text-color);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .btn-outline-secondary {
+      color: var(--text-color);
+      border-color: var(--text-color);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .btn-outline-secondary:hover {
+      background-color: var(--text-color);
+      color: var(--bg-color);
+    }
+
+    .popup {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+      z-index: 1050;
+    }
+
+    .form-label {
+      font-weight: bold;
+      color: #495057;
+    }
+
+    .form-control {
+      border-radius: 6px;
+    }
+
+    .btn-custom {
+      border-radius: 50px;
+    }
+
+    .navbar-brand {
+      font-weight: bold;
+    }
+
+    .btn-close {
+      font-size: 1.2rem;
+    }
+
+    .slider {
+      transition: background-color 0.4s, transform 0.4s;
+    }
+    .center-form {
+      display: flex;
+      justify-content: center;
+    }
+
+    input:invalid {
+      border-color: red;
+      background-color: #ffeeee;
+    }
+
+    input:invalid:focus {
+      outline: none;
+    }
+
+    .error-message {
+      color: red;
+      font-size: 14px;
+      margin-top: 5px;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+    }
+
+    /* Hide default HTML checkbox */
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    /* The slider */
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      -webkit-transition: 0.4s;
+      transition: 0.4s;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px;
+      width: 26px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      -webkit-transition: 0.4s;
+      transition: 0.4s;
+    }
+
+    input:checked + .slider {
+      background-color: #2196f3;
+    }
+
+    input:focus + .slider {
+      box-shadow: 0 0 1px #2196f3;
+    }
+
+    input:checked + .slider:before {
+      -webkit-transform: translateX(26px);
+      -ms-transform: translateX(26px);
+      transform: translateX(26px);
+    }
+
+    /* Rounded sliders */
+    .slider.round {
+      border-radius: 34px;
+    }
+
+    .slider.round:before {
+      border-radius: 50%;
+    }
+    .card-analog {
+      width: 300px;
+      padding: 20px;
+      box-shadow: 0 8px 8px rgba(6, 6, 10, 0.1);
+      text-align: center;
+      background-color: rgba(184, 177, 173, 0.527);
+    }
+
+    .analog-value {
+      font-size: 36px;
+      margin-bottom: 20px;
+    }
+    .current-datetime-container {
+      background-color: #f9f9f9; /* Light gray background */
+      border: 1px solid #ddd; /* Subtle border */
+    }
+
+    .text-primary {
+      color: #007bff; /* Bootstrap's primary color */
+    }
+
+    h5 {
+      font-size: 1.25rem; /* Slightly larger font size for the date-time */
+    }
+  </style>
+  <body class="h-100">
+    <nav class="navbar navbar-expand-lg bg-light navbar-light fixed-top">
+      <div class="container">
+        <img
+          src="/logoMeditech256.png"
+          alt="ESP32 Icon"
+          style="width: 75px; height: 75px; margin-right: 10px"
+        />
+        <a class="navbar-brand" href="#">MedIoT V1.0</a>
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navbarNav"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item">
+              <a class="nav-link" id="homeLink" href="#"
+                ><i class="fas fa-home"></i> Home</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="network"
+                ><i class="fas fa-network-wired"></i> Network</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="analog_input"
+                ><i class="fas fa-tachometer-alt"></i> Analog Input</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="digital_IO"
+                ><i class="fas fa-toggle-on"></i> Digital I/O</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="modbus_setup"
+                ><i class="fas fa-cogs"></i> Modbus Config</a
+              >
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="system_settings"
+                ><i class="fas fa-tools"></i> System Settings</a
+              >
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+    <br />
+    <br />
+    <div class="container mt-3 pt-5 h-75">
+      <div class="custom-card mx-auto p-4 h-100">
+        <h2 class="text-center mb-4">Debug Monitor</h2>
+        <textarea
+          name="monitor"
+          id="monitor"
+          class="form-control"
+          cols="auto"
+          style="resize: none; height: 75%"
+          placeholder="00:00:00.000 - Debug Monitor"
+          readonly
+          disabled
+        ></textarea
+        >
+      </div>
+    </div>
+    <!-- Theme Toggle Switch -->
+    <div class="container mt-3">
+      <div d-flex align-items-center>
+        <input class="form-check-input" type="checkbox" id="themeToggle" />
+        <label class="form-check-label ms-2" for="themeToggle"
+          >Night Mode</label
+        >
+      </div>
+    </div>
+
+    <script src="/bootstrap.bundle.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const elements = {
+          homeLink: document.getElementById("homeLink"),
+          monitor: document.getElementById("monitor"),
+        };
+        const baseURL = `${window.location.protocol}//${window.location.hostname}`;
+        elements.homeLink.href = baseURL;
+
+        const eventSource = new EventSource("/debugStream");
+
+        eventSource.onmessage = function (event) {
+          const data = event.data;
+          elements.monitor.value += data + "\n";
+          let lines = elements.monitor.value.split("\n");
+          if (lines.length > 500) {
+            lines.shift(); // Remove the first line when lines exceed 500
+            elements.monitor.value = lines.join("\n");
+          }
+          elements.monitor.scrollTop = elements.monitor.scrollHeight; // Auto-scroll to the bottom
+        };
+
+        eventSource.onerror = function (error) {
+          console.error("EventSource failed:", error);
+        };
+
+        const themeToggle = document.getElementById("themeToggle");
+        const rootElement = document.documentElement;
+
+        // Check localStorage for saved theme preference
+        const currentTheme = localStorage.getItem("theme");
+        if (currentTheme) {
+          rootElement.setAttribute("data-theme", currentTheme);
+          themeToggle.checked = currentTheme === "dark";
+        }
+
+        // Listen for toggle switch changes
+        themeToggle.addEventListener("change", () => {
+          if (themeToggle.checked) {
+            rootElement.setAttribute("data-theme", "dark");
+            localStorage.setItem("theme", "dark");
+          } else {
+            rootElement.setAttribute("data-theme", "light");
+            localStorage.setItem("theme", "light");
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedIoT Configuration</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg fixed-top">
+    <div class="container">
+      <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 50px; height: 50px; margin-right: 15px;">
+      <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+          <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+          <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+          <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+          <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 80px;"></div>
+
+  <div class="container mt-4">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Modbus Setup</h2>
+      <form id="setupForm">
+        <div class="row center-form">
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="baudrate">Baudrate:</label>
+              <select class="form-control" id="baudrate" name="baudrate">
+                <option>4800</option>
+                <option>9600</option>
+                <option>19200</option>
+                <option>38400</option>
+                <option>57600</option>
+                <option>115200</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="parity">Parity:</label>
+              <select class="form-control" id="parity" name="parity">
+                <option>None</option>
+                <option>Odd</option>
+                <option>Even</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="stopBit">Stop Bit:</label>
+              <select class="form-control" id="stopBit" name="stopBit">
+                <option>1</option>
+                <option>2</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="dataBit">Data Bit:</label>
+              <select class="form-control" id="dataBit" name="dataBit">
+                <option>7</option>
+                <option>8</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="scanRate">Scan Rate (in seconds):</label>
+              <input type="number" step="0.1" min="0.1" class="form-control" id="scanRate" name="scanRate"
+                placeholder="Enter Scan Rate">
+            </div>
+            <br>
+            <div class="d-flex justify-content-center">
+              <input type="button" id="saveSetup" value="Save Configuration" class="btn btn-primary w-100">
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="container mt-4 mb-5">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Parameter Configuration</h2>
+      <form id="modbusParam">
+        <div class="mb-3 text-center">
+          <label for="parameterList" class="form-label fw-bold">Select Existing Parameter:</label>
+          <select class="form-control w-50 mx-auto" id="parameterList" name="select-input"></select>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="row center-form">
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="paramName">Parameter Name:</label>
+              <input type="text" class="form-control" id="paramName" name="paramName"
+                placeholder="Enter Parameter Name">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="deviceAddress">Device Address:</label>
+              <input type="number" class="form-control" id="deviceAddress" name="deviceAddress"
+                placeholder="Enter Device Address">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="functionCode">Function Code:</label>
+              <input type="number" class="form-control" id="functionCode" name="functionCode"
+                placeholder="Enter Function Code">
+            </div>
+          </div>
+
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="registerAddress">Register Address:</label>
+              <input type="number" min="0" class="form-control" id="registerAddress" name="registerAddress"
+                placeholder="Enter Register Address">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="multiplier">Multiplier:</label>
+              <input type="number" step="0.001" min="0.001" class="form-control" id="multiplier" name="multiplier"
+                placeholder="Enter Multiplier">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="offsetAddress">Register Address For Modbus Slave Mode:</label>
+              <input type="number" min="31" max="100" class="form-control" id="offsetAddress" name="offsetAddress"
+                placeholder="Enter Address (Valid range 31-100)">
+            </div>
+          </div>
+        </div>
+
+        <div class="d-grid gap-2 d-md-flex justify-content-md-center mt-4">
+          <input type="button" id="addParam" value="Add New" class="btn btn-success">
+          <input type="button" id="saveParam" value="Update Selected" class="btn btn-primary">
+          <input type="button" id="delParam" value="Delete Selected" class="btn btn-danger">
+        </div>
+
+        <div class="section-divider"></div>
+
+        <div class="d-flex justify-content-center align-items-center">
+          <div class="card-analog">
+            <h4>Realtime Value</h4>
+            <div class="analog-value" id="realtimeValue">#.##</div>
+          </div>
+        </div>
+      </form>
+
+      <div class="popup">
+        <h2 id="headPopup">Form Submitted!</h2>
+        <p id="textPopup">Thank you for submitting the form.</p>
+        <button id="buttonPopupInt" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5 text-center">
+    <div class="form-check form-switch d-inline-block">
+      <input class="form-check-input" type="checkbox" id="themeToggle">
+      <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+    </div>
+  </div>
+
+  <script src="/bootstrap.bundle.min.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/modbus_setup.js"></script>
+</body>
+
+</html>

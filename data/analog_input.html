@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedIoT Configuration</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg fixed-top">
+    <div class="container">
+      <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 50px; height: 50px; margin-right: 15px;">
+      <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+          <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+          <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+          <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+          <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 80px;"></div>
+
+  <div class="container mt-4">
+    <div class="card mx-auto p-4">
+      <h2 class="text-center mb-4">Analog Input Configuration</h2>
+      <form id="analogIO">
+        <div class="row center-form">
+          <div class="col-md-5">
+            <div class="mb-3">
+              <label class="form-label" for="inputPin">Select Input:</label>
+              <select class="form-control" id="inputPin" name="inputPin">
+                <option>AI1</option>
+                <option>AI2</option>
+                <option>AI3</option>
+                <option>AI4</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="name">Sensor Code:</label>
+              <input type="text" class="form-control" id="name" name="name" placeholder="Enter Sensor Name" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="inputType">Select Input Type:</label>
+              <select class="form-control" id="inputType" name="inputType">
+                <option>4-20 mA</option>
+                <option>0-20 mA</option>
+                <option>0-10 V</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <div class="d-flex align-items-center justify-content-between">
+                <label class="form-label m-0" for="filter">Digital Filter:</label>
+                <label class="switch">
+                  <input type="checkbox" id="filter" name="filter" />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="filterPeriod">Filter Periode:</label>
+              <input type="number" step="0.01" min="0.01" class="form-control" id="filterPeriod" name="filterPeriod"
+                placeholder="Enter Filter Period in Seconds" required />
+            </div>
+          </div>
+
+          <div class="col-md-5">
+            <div class="mb-3">
+              <div class="d-flex align-items-center justify-content-between">
+                <label class="form-label m-0" for="scaling">Input Scaling:</label>
+                <label class="switch">
+                  <input type="checkbox" id="scaling" name="scaling" />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="lowLimit">Low Limit:</label>
+              <input type="number" step="1" class="form-control" id="lowLimit" name="lowLimit"
+                placeholder="Enter Low Limit" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="highLimit">High Limit:</label>
+              <input type="number" step="1" class="form-control" id="highLimit" name="highLimit"
+                placeholder="Enter High Limit" />
+            </div>
+            <div class="mb-3">
+              <div class="d-flex align-items-center justify-content-between">
+                <label class="form-label m-0" for="calibration">Linear Calibration (y=mx+c):</label>
+                <label class="switch">
+                  <input type="checkbox" id="calibration" name="calibration" />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="row mb-3">
+              <div class="col-6">
+                <label class="form-label" for="mValue">Gradient ('m'):</label>
+                <input type="number" step="0.1" class="form-control" id="mValue" name="mValue" placeholder="m value" />
+              </div>
+              <div class="col-6">
+                <label class="form-label" for="cValue">Constant ('c'):</label>
+                <input type="number" step="0.1" class="form-control" id="cValue" name="cValue" placeholder="c value" />
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-center mt-4">
+              <input type="button" id="submitAnalog" value="Save Configuration" class="btn btn-primary w-100" />
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <div class="popup">
+        <h2 id="headPopup">Form Submitted!</h2>
+        <p id="textPopup">Thank you for submitting the form.</p>
+        <button id="buttonPopupInt" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5 text-center">
+    <div class="form-check form-switch d-inline-block">
+      <input class="form-check-input" type="checkbox" id="themeToggle">
+      <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+    </div>
+  </div>
+
+  <script src="/bootstrap.bundle.min.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/analog_input.js"></script>
+</body>
+
+</html>

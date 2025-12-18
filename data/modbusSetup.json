@@ -1,0 +1,11 @@
+{
+    "baudrate":9600,
+    "parity":"None",
+    "stopBit":1,
+    "dataBit":8,
+    "scanRate":1,
+    "nameData": ["IOTN-002_TEMP001","IOTN-002_HUMI001"],
+    "IOTN-002_TEMP001": [4,4, 1,0.1,31],
+    "IOTN-002_HUMI001": [4,4, 2,0.1,32]
+
+}

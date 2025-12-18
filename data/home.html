@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - MedIoT Controller</title>
+  <link rel="icon" type="image/png" href="/logoMeditech32.png">
+  <link rel="stylesheet" href="/bootstrap.min.css">
+  <script src="js/highcharts.js"></script>
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <nav class="navbar navbar-expand-lg fixed-top">
+    <div class="container">
+      <img src="/logoMeditech256.png" alt="ESP32 Icon" style="width: 50px; height: 50px; margin-right: 15px;">
+      <a class="navbar-brand" href="#">MedIoT Modbus Controller</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" id="homeLink" href="#"></i> Home</a></li>
+          <li class="nav-item"><a class="nav-link" href="network"></i> Network</a></li>
+          <li class="nav-item"><a class="nav-link" href="analog_input"></i> Analog Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="digital_IO"></i> Digital I/O</a></li>
+          <li class="nav-item"><a class="nav-link" href="modbus_setup"></i> Modbus Config</a></li>
+          <li class="nav-item"><a class="nav-link" href="system_settings"></i> System Settings</a></li>
+          <li class="nav-item"><a class="nav-link active" href="updateOTA"></i> Update OTA</a>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 80px;"></div>
+
+  <div class="container mt-4">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Device Status</h2>
+      <form id="net-interface">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label">Network Mode:</label>
+              <input type="text" class="form-control" id="networkMode" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Current SSID:</label>
+              <input type="text" class="form-control" id="ssid" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">IP Address:</label>
+              <input type="text" class="form-control" id="ipAddres" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">MAC Address:</label>
+              <input type="text" class="form-control" id="macAddress" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Job Number:</label>
+              <input type="text" class="form-control" id="jobNumber" disabled />
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label">Protocol:</label>
+              <input type="text" class="form-control" id="protocolMode" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Server Endpoint/Broker:</label>
+              <input type="text" class="form-control" id="endpoint" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Connection Status:</label>
+              <input type="text" class="form-control" id="connStatus" disabled />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Logging Interval (s):</label>
+              <input type="text" class="form-control" id="sendInterval" disabled />
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="container mt-4">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Analog Monitoring</h2>
+
+      <div id="chartSensor" style="width:100%; height:400px;"></div>
+
+      <div class="section-divider"></div>
+
+      <div id="chartSensorScaled" style="width:100%; height:400px;"></div>
+    </div>
+  </div>
+
+  <div class="container mt-4 mb-5">
+    <div class="card mx-auto">
+      <h2 class="text-center mb-4">Digital Input Status</h2>
+      <div class="row text-center">
+
+        <div class="col-md-3 mb-3">
+          <div class="p-3 border rounded bg-light h-100">
+            <h4>DI 1</h4>
+            <hr>
+            <label class="form-label fw-bold" id="di1Text">Normal</label>
+            <div class="input-group justify-content-center">
+              <input id="di1Value" type="text" class="form-control text-center" readonly value="0">
+              <span class="input-group-text" id="di1Unit">.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+          <div class="p-3 border rounded bg-light h-100">
+            <h4>DI 2</h4>
+            <hr>
+            <label class="form-label fw-bold" id="di2Text">Counting</label>
+            <div class="input-group justify-content-center">
+              <input id="di2Value" type="text" class="form-control text-center" readonly value="0">
+              <span class="input-group-text" id="di2Unit">pcs</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+          <div class="p-3 border rounded bg-light h-100">
+            <h4>DI 3</h4>
+            <hr>
+            <label class="form-label fw-bold" id="di3Text">Cycle Time</label>
+            <div class="input-group justify-content-center">
+              <input id="di3Value" type="text" class="form-control text-center" readonly value="0.00">
+              <span class="input-group-text" id="di3Unit">sec</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+          <div class="p-3 border rounded bg-light h-100">
+            <h4>DI 4</h4>
+            <hr>
+            <label class="form-label fw-bold" id="di4Text">Run Time</label>
+            <div class="input-group justify-content-center">
+              <input id="di4Value" type="text" class="form-control text-center" readonly value="0.00">
+              <span class="input-group-text" id="di4Unit">min</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="container mt-3 mb-5 text-center">
+    <div class="form-check form-switch d-inline-block">
+      <input class="form-check-input" type="checkbox" id="themeToggle">
+      <label class="form-check-label ms-2" for="themeToggle">Night Mode</label>
+    </div>
+  </div>
+
+  <script src="/bootstrap.bundle.min.js"></script>
+
+  <script src="js/common.js"></script>
+
+  <script src="js/home.js"></script>
+
+</body>
+
+</html>
