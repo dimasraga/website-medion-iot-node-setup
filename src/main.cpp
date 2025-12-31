@@ -23,6 +23,7 @@
 #include <ModbusRTU.h>
 #include <DNSServer.h>
 #include "NetworkFunctions.hpp"
+#include <esp_task_wdt.h>
 
 // #define DEBUG
 // ============================================================================
@@ -123,6 +124,7 @@ void printConfigurationDetails();
 int countJsonKeys(const JsonDocument &doc);
 float filterSensor(float filterVar, float filterResult_1, float fc);
 float mapFloat(float x, float in_min, float in_max, float out_min, float out_max);
+unsigned int readModbusNonBlocking(unsigned int modbusAddress, unsigned int funCode, unsigned int regAddress, unsigned int timeoutMs);
 unsigned int readModbus(unsigned int modbusAddress, unsigned int funCode, unsigned int regAddress);
 unsigned int crcModbus(unsigned int crc[], byte start, byte sizeArray);
 unsigned int parseByte(unsigned int bytes, bool byteOrder);
@@ -193,18 +195,39 @@ void configureSendTriggerInterrupt(Network networkSettings)
 // ============================================================================
 String getContentType(String filename)
 {
+  filename.toLowerCase();
+
   if (filename.endsWith(".html"))
-    return "text/html";
+    return "text/html; charset=utf-8";
+  else if (filename.endsWith(".htm"))
+    return "text/html; charset=utf-8";
   else if (filename.endsWith(".css"))
-    return "text/css";
+    return "text/css; charset=utf-8";
   else if (filename.endsWith(".js"))
-    return "application/javascript";
+    return "application/javascript; charset=utf-8";
+  else if (filename.endsWith(".json"))
+    return "application/json";
   else if (filename.endsWith(".png"))
     return "image/png";
   else if (filename.endsWith(".jpg"))
     return "image/jpeg";
+  else if (filename.endsWith(".jpeg"))
+    return "image/jpeg";
+  else if (filename.endsWith(".gif"))
+    return "image/gif";
   else if (filename.endsWith(".ico"))
     return "image/x-icon";
+  else if (filename.endsWith(".svg"))
+    return "image/svg+xml";
+  else if (filename.endsWith(".woff"))
+    return "font/woff";
+  else if (filename.endsWith(".woff2"))
+    return "font/woff2";
+  else if (filename.endsWith(".ttf"))
+    return "font/ttf";
+  else if (filename.endsWith(".eot"))
+    return "application/vnd.ms-fontobject";
+
   return "text/plain";
 }
 
@@ -1592,9 +1615,8 @@ String getPostValue(String data, String key)
     valEnd = data.length();
   return urlDecode(data.substring(valStart, valEnd));
 }
-
 // ============================================================================
-// 2. MAIN ETHERNET HANDLER (HIGH PERFORMANCE)
+// ETHERNET WEB SERVER HANDLER (FIXED VERSION - ANTI HANG)
 // ============================================================================
 void handleEthernetClient()
 {
@@ -1602,44 +1624,44 @@ void handleEthernetClient()
   if (!client)
     return;
 
-  // --- A. BUFFER REQUEST READING (BACA REQUEST CEPAT) ---
+  // [FIX 1] SET TIMEOUT SOCKET (KRUSIAL!)
+  client.setTimeout(100);           // 100ms timeout untuk read/write
+  client.setConnectionTimeout(500); // 500ms timeout koneksi
+
   String req = "";
   String postData = "";
   unsigned long timeout = millis();
   bool headerFinished = false;
   int contentLength = 0;
-  uint8_t tempBuf[512]; // Buffer baca sementara
+  uint8_t tempBuf[256]; // [FIX 2] Kurangi dari 512 → 256 (save RAM)
 
-  // Loop membaca data dari browser dengan timeout 2 detik
-  while (client.connected() && millis() - timeout < 2000)
+  // [FIX 3] TIMEOUT KETAT: 1 DETIK (dari 2 detik)
+  while (client.connected() && millis() - timeout < 1000)
   {
-    // vTaskDelay(1);
     if (client.available())
     {
       int len = client.read(tempBuf, sizeof(tempBuf));
       if (len > 0)
       {
-        // Jika header belum selesai, parsing header dulu
         if (!headerFinished)
         {
           for (int i = 0; i < len; i++)
           {
             req += (char)tempBuf[i];
-            // Deteksi akhir header (\r\n\r\n)
             if (req.endsWith("\r\n\r\n"))
             {
               headerFinished = true;
 
-              // Cari Content-Length (untuk POST)
               String lowerReq = req;
               lowerReq.toLowerCase();
               int clIndex = lowerReq.indexOf("content-length:");
               if (clIndex != -1)
               {
-                contentLength = lowerReq.substring(clIndex + 15, lowerReq.indexOf('\n', clIndex)).toInt();
+                contentLength = lowerReq.substring(clIndex + 15,
+                                                   lowerReq.indexOf('\n', clIndex))
+                                    .toInt();
               }
 
-              // Sisa buffer setelah header adalah body
               for (int j = i + 1; j < len; j++)
                 postData += (char)tempBuf[j];
               break;
@@ -1648,22 +1670,20 @@ void handleEthernetClient()
         }
         else
         {
-          // Jika header sudah selesai, sisa data masuk ke Body
           for (int i = 0; i < len; i++)
             postData += (char)tempBuf[i];
         }
       }
 
-      // Stop loop jika request sudah lengkap
       if (headerFinished)
       {
         if (req.startsWith("GET"))
           break;
-        // Jika POST, tunggu sampai panjang data sesuai Content-Length
         if (req.startsWith("POST") && postData.length() >= contentLength)
           break;
       }
     }
+    vTaskDelay(1); // Beri waktu CPU task lain
   }
 
   if (req.length() == 0)
@@ -1672,7 +1692,7 @@ void handleEthernetClient()
     return;
   }
 
-  // --- B. PARSING URL & METHOD ---
+  // === PARSING URL ===
   int firstSpace = req.indexOf(' ');
   int secondSpace = req.indexOf(' ', firstSpace + 1);
   if (firstSpace == -1 || secondSpace == -1)
@@ -1685,7 +1705,6 @@ void handleEthernetClient()
   String fullUrl = req.substring(firstSpace + 1, secondSpace);
   fullUrl.trim();
 
-  // Pisahkan URL utama dan Query Parameter (contoh: /analogLoad?input=1)
   String basePath = fullUrl;
   String queryParams = "";
   if (fullUrl.indexOf("?") > 0)
@@ -1694,31 +1713,7 @@ void handleEthernetClient()
     queryParams = fullUrl.substring(fullUrl.indexOf("?") + 1);
   }
 
-  // --- C. PERSIAPAN DATA POST (JSON vs FORM) ---
-  bool isJson = false;
-  DynamicJsonDocument jsonBody(2048);
-
-  if (method == "POST")
-  {
-    postData.trim();
-    // Cek apakah formatnya JSON atau Form biasa
-    if (postData.startsWith("{") || postData.startsWith("["))
-    {
-      DeserializationError error = deserializeJson(jsonBody, postData);
-      if (!error)
-        isJson = true;
-    }
-  }
-
-  // Helper Lambda: Cara cerdas ambil data (otomatis dari JSON atau Form)
-  auto getValue = [&](String key) -> String
-  {
-    if (isJson && jsonBody.containsKey(key))
-      return jsonBody[key].as<String>();
-    return getPostValue(postData, key);
-  };
-
-  // --- D. HANDLING OPTIONS (Untuk CORS Browser Modern) ---
+  // === OPTIONS (CORS) ===
   if (method == "OPTIONS")
   {
     client.println("HTTP/1.1 204 No Content");
@@ -1731,9 +1726,31 @@ void handleEthernetClient()
     return;
   }
 
-  // ==========================================================================
-  // E. LOGIKA SAVE DATA (METHOD: POST)
-  // ==========================================================================
+  // === HELPER LAMBDA ===
+  bool isJson = false;
+  DynamicJsonDocument jsonBody(1024); // [FIX 5] Kurangi dari 2048 → 1024
+
+  if (method == "POST")
+  {
+    postData.trim();
+    if (postData.startsWith("{") || postData.startsWith("["))
+    {
+      DeserializationError error = deserializeJson(jsonBody, postData);
+      if (!error)
+        isJson = true;
+    }
+  }
+
+  auto getValue = [&](String key) -> String
+  {
+    if (isJson && jsonBody.containsKey(key))
+      return jsonBody[key].as<String>();
+    return getPostValue(postData, key);
+  };
+
+  // ========================================================================
+  // POST HANDLING (SAVE CONFIG)
+  // ========================================================================
   if (method == "POST")
   {
     client.println("HTTP/1.1 200 OK");
@@ -1742,20 +1759,19 @@ void handleEthernetClient()
     client.println("Connection: close");
     client.println();
 
-    // 1. NETWORK CONFIG (Termasuk ERP & MQTT)
-    // Deteksi cerdas: Jika ada key 'networkMode' atau 'erpUrl', maka ini config network
+    // [LOGIC SAVE CONFIG - SAMA SEPERTI SEBELUMNYA, TAPI TANPA DELAY]
+    // (Copy logic Anda yang lama disini, tapi HAPUS semua delay() kecuali vTaskDelay)
+
     bool isNetwork = (getValue("networkMode") != "") || (getValue("erpUrl") != "");
 
     if (basePath == "/network" || isNetwork)
     {
-      // Simpan ERP
       if (getValue("erpUrl") != "")
       {
         networkSettings.erpUrl = getValue("erpUrl");
         networkSettings.erpUsername = getValue("erpUsername");
         networkSettings.erpPassword = getValue("erpPassword");
       }
-      // Simpan Network Utama
       else
       {
         networkSettings.networkMode = getValue("networkMode");
@@ -1773,13 +1789,11 @@ void handleEthernetClient()
         networkSettings.port = getValue("port").toInt();
         networkSettings.sendInterval = getValue("sendInterval").toFloat();
         networkSettings.sendTrig = getValue("sendTrig");
-
         networkSettings.mqttUsername = getValue("mqttUsername");
         networkSettings.mqttPassword = getValue("mqttPass");
         networkSettings.pubTopic = getValue("pubTopic");
         networkSettings.subTopic = getValue("subTopic");
 
-        // Simpan Modbus params (jika ada di halaman network)
         if (getValue("modbusMode") != "")
         {
           networkSettings.protocolMode2 = getValue("protocolMode2");
@@ -1789,20 +1803,17 @@ void handleEthernetClient()
         configureSendTriggerInterrupt(networkSettings);
       }
 
-      // Simpan ke Flash & SD
       saveToJson("/configNetwork.json", "network");
       saveToSDConfig("/configNetwork.json", "network");
       client.print("Network Saved");
     }
-
-    // 2. DIGITAL IO CONFIG
     else if (basePath == "/digital_IO" || getValue("inputPin").startsWith("DI"))
     {
       String targetPin = getValue("inputPin");
       if (targetPin.startsWith("DI"))
       {
         int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(1000)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500))) // [FIX] Timeout naik
         {
           digitalInput[id].name = getValue("nameDI");
           digitalInput[id].taskMode = getValue("taskMode");
@@ -1823,15 +1834,13 @@ void handleEthernetClient()
         client.print("Digital Saved");
       }
     }
-
-    // 3. ANALOG INPUT CONFIG
     else if (basePath == "/analog_input" || getValue("inputPin").startsWith("AI"))
     {
       String targetPin = getValue("inputPin");
       if (targetPin.startsWith("AI"))
       {
         int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(1000)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
         {
           analogInput[id].name = getValue("name");
           analogInput[id].inputType = getValue("inputType");
@@ -1860,15 +1869,12 @@ void handleEthernetClient()
         client.print("Analog Saved");
       }
     }
-
-    // 4. SYSTEM SETTINGS
     else if (basePath == "/system_settings" || getValue("username") != "")
     {
       networkSettings.loginUsername = getValue("username");
       networkSettings.loginPassword = getValue("password");
       networkSettings.sdSaveInterval = getValue("sdInterval").toInt();
 
-      // Update Waktu RTC jika ada
       String dt = getValue("datetime");
       if (dt.length() >= 16)
       {
@@ -1884,8 +1890,6 @@ void handleEthernetClient()
       saveToSDConfig("/systemSettings.json", "systemSettings");
       client.print("Settings Saved");
     }
-
-    // 5. MODBUS SETUP
     else if (basePath == "/modbus_setup" || (isJson && jsonBody.containsKey("baudrate")))
     {
       if (isJson)
@@ -1913,13 +1917,14 @@ void handleEthernetClient()
     }
   }
 
-  // ==========================================================================
-  // F. LOGIKA LOAD DATA & HALAMAN (METHOD: GET)
-  // ==========================================================================
+  // ========================================================================
+  // GET HANDLING (LOAD DATA)
+  // ========================================================================
   else if (method == "GET")
   {
-    // --- API JSON ENDPOINTS ---
-    if (basePath.endsWith("Load") || basePath.endsWith("Value") || basePath.endsWith("Status") || basePath == "/getTime")
+    // [FIX 6] MUTEX TIMEOUT DINAIKKAN
+    if (basePath.endsWith("Load") || basePath.endsWith("Value") ||
+        basePath.endsWith("Status") || basePath == "/getTime")
     {
       client.println("HTTP/1.1 200 OK");
       client.println("Content-Type: application/json");
@@ -1927,10 +1932,9 @@ void handleEthernetClient()
       client.println("Connection: close");
       client.println();
 
-      // 1. Current Value (Dashboard Realtime)
       if (basePath == "/getCurrentValue")
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(20)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100))) // [FIX] 100ms timeout
         {
           DynamicJsonDocument docTemp(1024);
           for (int i = 1; i <= jumlahInputAnalog; i++)
@@ -1950,11 +1954,9 @@ void handleEthernetClient()
           client.print("{}");
         }
       }
-
-      // 2. Modbus Value (Realtime)
       else if (basePath == "/getValue")
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(20)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
         {
           DynamicJsonDocument docTemp(4096);
           JsonArray arr = docTemp.to<JsonArray>();
@@ -1975,11 +1977,9 @@ void handleEthernetClient()
           client.print("[]");
         }
       }
-
-      // 3. Network Load (Config)
       else if (basePath == "/networkLoad")
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
         {
           doc = DynamicJsonDocument(4096);
           doc["networkMode"] = networkSettings.networkMode;
@@ -2007,14 +2007,13 @@ void handleEthernetClient()
           xSemaphoreGive(jsonMutex);
         }
       }
-
-      // 4. Analog Load (Config)
       else if (basePath == "/analogLoad")
       {
         int id = 1;
         if (queryParams.indexOf("input=") >= 0)
           id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
+
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
         {
           doc = DynamicJsonDocument(2048);
           doc["name"] = analogInput[id].name;
@@ -2030,28 +2029,23 @@ void handleEthernetClient()
           xSemaphoreGive(jsonMutex);
         }
       }
-
-      // 5. Digital Load (Config)
       else if (basePath == "/digitalLoad")
       {
         int id = 1;
         if (queryParams.indexOf("input=") >= 0)
           id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
 
-        // --- LOGIKA RESET DIPERBAIKI ---
         if (queryParams.indexOf("reset=") >= 0)
         {
           int resetId = queryParams.substring(queryParams.indexOf("reset=") + 6).toInt();
           if (resetId >= 1 && resetId <= jumlahInputDigital)
           {
-            digitalInput[resetId].value = 0;    // Reset Nilai
-            digitalInput[resetId].sumValue = 0; // Reset Counter Internal (jika pulse mode)
-            Serial.printf(">> [CMD] Digital Input %d BERHASIL DI-RESET ke 0\n", resetId);
+            digitalInput[resetId].value = 0;
+            digitalInput[resetId].sumValue = 0;
           }
         }
-        // --------------------------------
 
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
         {
           doc = DynamicJsonDocument(2048);
           doc["nameDI"] = digitalInput[id].name;
@@ -2064,11 +2058,9 @@ void handleEthernetClient()
           xSemaphoreGive(jsonMutex);
         }
       }
-
-      // 6. Home Load (Config Dashboard)
       else if (basePath == "/homeLoad")
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
         {
           doc = DynamicJsonDocument(4096);
           doc["networkMode"] = networkSettings.networkMode;
@@ -2085,14 +2077,21 @@ void handleEthernetClient()
             AIRaw.add(analogInput[i].adcValue);
             AIScale.add(analogInput[i].mapValue);
           }
-          // Isi bagian lain seperti DI dsb jika perlu...
+          JsonObject DI = doc.createNestedObject("DI");
+          JsonArray DIValue = DI.createNestedArray("value");
+          JsonArray DITaskMode = DI.createNestedArray("taskMode");
+          JsonArray DIName = DI.createNestedArray("name");
 
+          for (int i = 1; i <= jumlahInputDigital; i++)
+          {
+            DIValue.add(digitalInput[i].value);
+            DITaskMode.add(digitalInput[i].taskMode);
+            DIName.add(digitalInput[i].name);
+          }
           serializeJson(doc, client);
           xSemaphoreGive(jsonMutex);
         }
       }
-
-      // 7. Status Lain
       else if (basePath == "/ethernetStatus" || basePath == "/wifiStatus")
       {
         DynamicJsonDocument stat(512);
@@ -2123,11 +2122,10 @@ void handleEthernetClient()
       }
     }
 
-    // --- 2. STATIC FILES (HTML/JS/CSS) - VERSI CEPAT (BUFFER 2KB) ---
+    // === STATIC FILES (HTML/JS/CSS) ===
     else
     {
       String filePath = basePath;
-      // Routing Manual ke File
       if (basePath == "/" || basePath == "/home")
         filePath = "/home.html";
       else if (basePath == "/network")
@@ -2154,7 +2152,6 @@ void handleEthernetClient()
         client.println("Content-Type: " + contentType);
         client.println("Access-Control-Allow-Origin: *");
 
-        // CACHE CONTROL: Agar browser tidak download ulang JS/CSS
         if (filePath.endsWith(".css") || filePath.endsWith(".js") || filePath.endsWith(".png"))
         {
           client.println("Cache-Control: public, max-age=31536000");
@@ -2169,15 +2166,13 @@ void handleEthernetClient()
         client.println("Connection: close");
         client.println();
 
-        // -----------------------------------------------------------------
-        // BUFFER SENDING (2048 BYTE) - KUNCI KECEPATAN
-        // -----------------------------------------------------------------
-        uint8_t buffer[2048]; // Buffer besar
+        // [FIX 7] BUFFER DIKURANGI DARI 2048 → 512 (SAVE STACK)
+        uint8_t buffer[512];
         while (file.available())
         {
           int bytesRead = file.read(buffer, sizeof(buffer));
-          client.write(buffer, bytesRead); // Kirim dalam paket besar
-          vTaskDelay(1);
+          client.write(buffer, bytesRead);
+          vTaskDelay(1); // [FIX 8] WATCHDOG FEED!
         }
         file.close();
       }
@@ -2190,13 +2185,16 @@ void handleEthernetClient()
     }
   }
 
-  // Beri waktu sejenak agar data terkirim di kabel sebelum socket ditutup
-  delay(1);
+  // [FIX 9] PASTIKAN CLIENT CLOSE SEMPURNA
+  // vTaskDelay(1);
+  client.flush();
+  vTaskDelay(pdMS_TO_TICKS(10));
   client.stop();
 }
 
-// CORE 0 TASK: Network Management, WiFi, TCP/IP, Web Server
-
+// ============================================================================
+// CORE 0 TASK: Network Management (FIXED VERSION - ANTI REBOOT)
+// ============================================================================
 void Task_NetworkManagement(void *parameter)
 {
   ESP_LOGI("Core0", "Network Management Task started");
@@ -2205,20 +2203,42 @@ void Task_NetworkManagement(void *parameter)
   unsigned long lastDNSProcess = 0;
   unsigned long lastMQTTCheck = 0;
   unsigned long lastStatusPrint = 0;
+  unsigned long lastWatchdogFeed = 0;
+  esp_task_wdt_add(NULL);
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
   while (true)
   {
+    esp_task_wdt_reset();
     // ============================================================
-    // 1. HANDLE ETHERNET SERVER (SPI MUTEX PROTECTED)
+    // YIELD CPU SETIAP 5 DETIK (BIARKAN IDLE TASK RESET WATCHDOG)
+    // ============================================================
+    if (millis() - lastWatchdogFeed >= 5000)
+    {
+      vTaskDelay(pdMS_TO_TICKS(50)); // Beri waktu ke IDLE task
+      lastWatchdogFeed = millis();
+    }
+
+    // ============================================================
+    // 1. HANDLE ETHERNET SERVER
     // ============================================================
     if (networkSettings.networkMode == "Ethernet")
     {
-      // Coba ambil kunci SPI selama 10ms. Jika gagal (SD Card sibuk), skip siklus ini.
-      if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+      if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(20)) == pdTRUE)
       {
         EthernetClient client = ethServer.available();
         if (client)
         {
+          client.setTimeout(100);
+
+          unsigned long startProcess = millis();
           handleEthernetClient();
+
+          if (millis() - startProcess > 500)
+          {
+            Serial.printf("⚠️ handleEthernetClient() took %lu ms\n",
+                          millis() - startProcess);
+          }
         }
         xSemaphoreGive(spiMutex);
       }
@@ -2227,18 +2247,21 @@ void Task_NetworkManagement(void *parameter)
     // ============================================================
     // 2. HANDLE DNS SERVER
     // ============================================================
-    if (millis() - lastDNSProcess >= 10)
+    if (millis() - lastDNSProcess >= 50)
     {
-      dnsServer.processNextRequest();
+      if (dnsStarted)
+      {
+        dnsServer.processNextRequest();
+      }
       lastDNSProcess = millis();
     }
 
     // ============================================================
-    // 3. WIFI CHECK & RECONNECT
+    // 3. WIFI CHECK
     // ============================================================
-    if (millis() - lastNetCheck >= 5000)
+    if (millis() - lastNetCheck >= 10000)
     {
-      checkWiFi(5000);
+      checkWiFi(10000);
       lastNetCheck = millis();
     }
 
@@ -2247,7 +2270,7 @@ void Task_NetworkManagement(void *parameter)
     // ============================================================
     if (networkSettings.protocolMode == "MQTT")
     {
-      if (millis() - lastMQTTCheck >= 1000)
+      if (millis() - lastMQTTCheck >= 200)
       {
         if (mqtt.connected())
         {
@@ -2258,13 +2281,13 @@ void Task_NetworkManagement(void *parameter)
     }
 
     // ============================================================
-    // 5. MODBUS TCP (MUTEX PROTECTED)
+    // 5. MODBUS TCP
     // ============================================================
     bool useTCP = (networkSettings.protocolMode2.indexOf("TCP") >= 0);
+
     if (useTCP)
     {
-      // Coba ambil kunci Modbus selama 10ms. Jika gagal (Core 1 sibuk), skip.
-      if (xSemaphoreTake(modbusMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+      if (xSemaphoreTake(modbusMutex, pdMS_TO_TICKS(5)) == pdTRUE)
       {
         mbIP.task();
         xSemaphoreGive(modbusMutex);
@@ -2272,39 +2295,51 @@ void Task_NetworkManagement(void *parameter)
     }
 
     // ============================================================
-    // 6. UTILITY
+    // 6. UTILITY & STATUS
     // ============================================================
     errorBlinker.update();
-    if (millis() - lastStatusPrint >= 50000)
+
+    if (millis() - lastStatusPrint >= 120000)
     {
-      String currentIP = (networkSettings.networkMode == "Ethernet") ? Ethernet.localIP().toString() : WiFi.localIP().toString();
+      String currentIP = (networkSettings.networkMode == "Ethernet")
+                             ? Ethernet.localIP().toString()
+                             : WiFi.localIP().toString();
+
       String linkStatus = "Disconnected";
 
       if (networkSettings.networkMode == "Ethernet")
       {
-        linkStatus = (Ethernet.linkStatus() == LinkON) ? "Link ON (Cable)" : "No Cable";
+        if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(20)))
+        {
+          linkStatus = (Ethernet.linkStatus() == LinkON) ? "Link ON" : "No Cable";
+          xSemaphoreGive(spiMutex);
+        }
+        else
+        {
+          linkStatus = "Unknown";
+        }
       }
       else
       {
-        linkStatus = (WiFi.status() == WL_CONNECTED) ? "WiFi Connected" : "WiFi Lost";
+        linkStatus = (WiFi.status() == WL_CONNECTED) ? "WiFi OK" : "WiFi Lost";
       }
 
-      Serial.println("\n=== NETWORK STATUS MONITOR ===");
-      Serial.printf("Mode       : %-15s | Protocol : %s\n", networkSettings.networkMode.c_str(), networkSettings.protocolMode.c_str());
-      Serial.printf("IP Addr    : %-15s | MAC      : %s\n", currentIP.c_str(), networkSettings.macAddress.c_str());
-      Serial.printf("Hardware   : %-15s | AP IP    : %s\n", linkStatus.c_str(), WiFi.softAPIP().toString().c_str());
-      Serial.printf("Backend    : %-15s | Job Num  : %s\n", networkSettings.connStatus.c_str(), jobNum.c_str());
-      Serial.println("==============================");
+      Serial.printf("\n[NET] Mode:%s IP:%s Status:%s Heap:%d\n",
+                    networkSettings.networkMode.c_str(),
+                    currentIP.c_str(),
+                    linkStatus.c_str(),
+                    ESP.getFreeHeap());
 
       lastStatusPrint = millis();
     }
+
     // ============================================================
-    // 7. WATCHDOG RESET DELAY
+    // 7. YIELD TO WATCHDOG (PALING KRUSIAL!)
     // ============================================================
-    // Wajib ada untuk mencegah Task Watchdog Triggered
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
+
 // ============================================================================
 // CORE 1 TASK: Data Acquisition (Analog & Digital Input)
 // ============================================================================
@@ -2394,6 +2429,15 @@ void Task_DataAcquisition(void *parameter)
 
         sensorData.digitalValues[i] = digitalInput[i].value;
         mbIP.Ireg(i + 19, digitalInput[i].value);
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(10)))
+        {
+          if (digitalInput[i].name != "")
+          {
+            jsonSend[digitalInput[i].name] = digitalInput[i].value;
+            jsonSend[digitalInput[i].name + "_mode"] = digitalInput[i].taskMode;
+          }
+          xSemaphoreGive(jsonMutex);
+        }
       }
       lastReadDigital = millis();
     }
@@ -2423,10 +2467,19 @@ void Task_DataAcquisition(void *parameter)
     xQueueSend(queueSensorData, &sensorData, 0);
 
     // ------------------------------------------------------------------------
-    // D. DEBUG MONITOR (Setiap 2 Detik) - [YANG KAMU MINTA]
+    // D. DEBUG MONITOR (Setiap 2 Detik)
     // ------------------------------------------------------------------------
     if (millis() - lastDebugPrint >= 2000)
     {
+      Serial.println("\n--- [ ANALOG INPUT ] ---");
+      for (int i = 1; i <= jumlahInputAnalog; i++)
+      {
+        // Menggunakan String() biasa lebih aman daripada printf float kompleks jika stack terbatas
+        Serial.print("AI-"); Serial.print(i);
+        Serial.print(" | Val: "); Serial.print(analogInput[i].mapValue, 2);
+        Serial.print(" | Raw: "); Serial.print(analogInput[i].adcValue);
+        Serial.print(" | Type: "); Serial.println(analogInput[i].inputType);
+      }
       Serial.println("\n=== DIGITAL INPUT STATUS ===");
       for (int i = 1; i <= jumlahInputDigital; i++)
       {
@@ -2443,7 +2496,6 @@ void Task_DataAcquisition(void *parameter)
       Serial.println("============================");
       lastDebugPrint = millis();
     }
-
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
@@ -2522,15 +2574,20 @@ void Task_ModbusClient(void *parameter)
 {
   ESP_LOGI("Core1", "Modbus Client Task started");
   unsigned long lastModbusRead = 0;
-
+  unsigned long lastWatchdogFeed = 0;
   while (true)
   {
     // Cek Timer sesuai Scan Rate (Misal tiap 1 detik)
+    if (millis() - lastWatchdogFeed >= 5000)
+    {
+      esp_task_wdt_reset(); // Reset watchdog manual
+      lastWatchdogFeed = millis();
+    }
     if (millis() - lastModbusRead >= (modbusParam.scanRate * 1000))
     {
-      // 1. Cek berapa banyak parameter yang harus dibaca
       int totalParamsToRead = 0;
 
+      // 1. Ambil Jumlah Sensor
       if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
       {
         deserializeJson(jsonParam, stringParam);
@@ -2539,8 +2596,13 @@ void Task_ModbusClient(void *parameter)
         xSemaphoreGive(jsonMutex);
       }
 
-      // 2. LOOPING SEMUA PARAMETER (BURST READ)
-      // Kita habiskan semua daftar sensor dalam satu siklus ini
+      // PRINT HEADER (Agar mirip Digital Input Status)
+      if (totalParamsToRead > 0)
+      {
+        Serial.println("\n=== MODBUS DATA MONITOR ===");
+      }
+
+      // 2. LOOPING SEMUA PARAMETER
       for (int i = 0; i < totalParamsToRead; i++)
       {
         String currentParamName = "";
@@ -2548,11 +2610,11 @@ void Task_ModbusClient(void *parameter)
         float multiplier = 1.0;
         bool validParam = false;
 
-        // A. Ambil Konfigurasi Sensor ke-i (CEPAT)
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(20)))
+        // A. Ambil Konfigurasi Sensor ke-i
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(50)))
         {
           JsonArray nameData = jsonParam["nameData"];
-          currentParamName = nameData[i].as<String>(); // Ambil nama berdasarkan index loop
+          currentParamName = nameData[i].as<String>();
 
           JsonArray paramArray = jsonParam[currentParamName];
           addr = paramArray[0];       // Slave ID
@@ -2564,28 +2626,40 @@ void Task_ModbusClient(void *parameter)
           xSemaphoreGive(jsonMutex);
         }
 
-        // B. Baca Sensor (LAMBAT - I/O Hardware)
-        // Lakukan di luar mutex agar Web Server tidak macet
+        // B. Baca Sensor
         if (validParam)
         {
-          // Serial.printf("Reading [%d/%d]: %s... ", i+1, totalParamsToRead, currentParamName.c_str());
-
-          unsigned int rawValue = readModbus(addr, fc, reg);
+          // Panggil fungsi readModbus (pastikan fungsi ini sudah dibersihkan Serial.print-nya)
+          unsigned int rawValue = readModbusNonBlocking(addr, fc, reg, 100);
           float finalValue = rawValue * multiplier;
 
-          // C. Simpan Hasil (CEPAT)
+          Serial.printf("MB-%d [%-15s]: %-8.2f | RAW: %-5u | ID: %d | Reg: %d\n",
+                        i + 1,                    // Nomor Urut
+                        currentParamName.c_str(), // Nama Parameter (dari JSON)
+                        finalValue,               // Nilai setelah dikali scaling
+                        rawValue,                 // Nilai Asli dari Modbus
+                        addr,                     // Slave ID
+                        reg                       // Register Address
+          );
+
+          // D. Simpan ke JSON Send (Untuk Web/MQTT)
           if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(50)))
           {
             jsonSend[currentParamName] = String(finalValue, 2);
             xSemaphoreGive(jsonMutex);
-            // Serial.printf("Val: %.2f\n", finalValue);
           }
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // Beri jeda sedikit antar sensor agar RS485 stabil
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
+
+      if (totalParamsToRead > 0)
+      {
+      }
+
       lastModbusRead = millis();
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 // ============================================================================
@@ -2593,19 +2667,29 @@ void Task_ModbusClient(void *parameter)
 // ============================================================================
 void Task_DataLogger(void *parameter)
 {
-  ESP_LOGI("Core1", "Data Logger Task started on core %d", xPortGetCoreID());
+  ESP_LOGI("Core1", "Data Logger Task started");
 
   SensorDataPacket sensorData;
   ModbusDataPacket modbusData;
   unsigned long lastSendTime = 0;
   unsigned long lastSDSave = 0;
   unsigned long lastPrint = 0;
+  unsigned long lastWatchdogFeed = 0; // ✅ TAMBAH
+
+  // ✅ ALOKASI DI LUAR LOOP (Sekali saja!)
+  DynamicJsonDocument docNew(1024);
+  DynamicJsonDocument docSD(1024);
 
   while (true)
   {
-    // ------------------------------------------------------------------------
-    // 1. UPDATE DATA JSON (Dari Queue) - [Aman, tidak pakai SPI]
-    // ------------------------------------------------------------------------
+    // ✅ FEED WATCHDOG
+    if (millis() - lastWatchdogFeed >= 5000)
+    {
+      esp_task_wdt_reset();
+      lastWatchdogFeed = millis();
+    }
+
+    // 1. UPDATE DATA JSON
     if (xQueueReceive(queueSensorData, &sensorData, 0) == pdTRUE)
     {
       if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(1000)))
@@ -2637,15 +2721,13 @@ void Task_DataLogger(void *parameter)
       }
     }
 
-    // ------------------------------------------------------------------------
-    // 2. PERIODIC DATA SENDING (HTTP/MQTT)
-    // ------------------------------------------------------------------------
+    // 2. PERIODIC DATA SENDING
     if (millis() - lastSendTime >= (networkSettings.sendInterval * 1000))
     {
       if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
       {
         sendString = "";
-        DynamicJsonDocument docNew(1024);
+        docNew.clear(); // ✅ REUSE (Jangan alokasi ulang!)
         JsonArray array = docNew.to<JsonArray>();
 
         for (JsonPair kv : jsonSend.as<JsonObject>())
@@ -2668,40 +2750,31 @@ void Task_DataLogger(void *parameter)
         serializeJson(docNew, sendString);
         xSemaphoreGive(jsonMutex);
 
-        // [PERBAIKAN 1]: Kunci SPI saat kirim HTTP via Ethernet
         if (networkSettings.protocolMode == "HTTP")
         {
-          // Coba ambil kunci SPI. Jika gagal (NetworkTask sibuk), skip dulu.
-          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(1000)))
+          // ✅ TIMEOUT DINAIKKAN (Dari 1s -> 2s)
+          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(2000)))
           {
             sendDataHTTP(sendString, networkSettings.endpoint,
                          networkSettings.mqttUsername, networkSettings.mqttPassword, 0);
-            xSemaphoreGive(spiMutex); // LEPAS KUNCI HARDWARE
+            xSemaphoreGive(spiMutex);
           }
           else
           {
             Serial.println("⚠️ HTTP Send Skipped (SPI Busy)");
           }
         }
-        else if (networkSettings.protocolMode == "MQTT")
-        {
-          // Jika MQTT via Ethernet, sebaiknya dikunci juga jika librarynya tidak thread-safe
-          // sendDataMQTT(sendString, networkSettings.pubTopic, 0);
-        }
       }
       lastSendTime = millis();
     }
 
-    // ------------------------------------------------------------------------
-    // 3. PERIODIC SD CARD SAVE - [PERBAIKAN UTAMA DISINI]
-    // ------------------------------------------------------------------------
+    // 3. SD CARD SAVE
     if (millis() - lastSDSave >= (networkSettings.sdSaveInterval * 60000UL))
     {
       String dataToSave = "";
-      // Siapkan string JSON dulu (cepat)
       if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
       {
-        DynamicJsonDocument docSD(1024);
+        docSD.clear(); // ✅ REUSE
         JsonArray arraySD = docSD.to<JsonArray>();
         for (JsonPair kv : jsonSend.as<JsonObject>())
         {
@@ -2721,44 +2794,38 @@ void Task_DataLogger(void *parameter)
         xSemaphoreGive(jsonMutex);
       }
 
-      // Tulis ke SD Card (Lambat & Butuh SPI)
       if (dataToSave.length() > 10)
       {
-        // Ambil kunci logis SD
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(500)))
         {
-          // [WAJIB] Ambil kunci Hardware SPI agar tidak tabrakan dengan Ethernet
-          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(1000)))
+          // ✅ TIMEOUT DINAIKKAN
+          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(2000)))
           {
             saveToSD(dataToSave);
-            xSemaphoreGive(spiMutex); // LEPAS KUNCI HARDWARE
+            xSemaphoreGive(spiMutex);
             ESP_LOGI("SD", "Data saved safely");
           }
           else
           {
             Serial.println("⚠️ SD Save Skipped (SPI Busy)");
           }
-          xSemaphoreGive(sdMutex); // Lepas kunci logis
+          xSemaphoreGive(sdMutex);
         }
       }
       lastSDSave = millis();
     }
 
-    // ------------------------------------------------------------------------
-    // 4. PERIODIC BACKUP SEND - [PERBAIKAN UTAMA DISINI]
-    // ------------------------------------------------------------------------
+    // 4. BACKUP SEND
     if (millis() - lastPrint >= 10000)
     {
       if (networkSettings.connStatus == "Connected")
       {
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(500)))
         {
-          // [WAJIB] Fungsi ini baca SD (SPI) DAN kirim Ethernet (SPI)
-          // Harus dikunci total agar Web Server tidak mengganggu
-          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(2000)))
+          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(3000))) // ✅ TIMEOUT DINAIKKAN
           {
             sendBackupData();
-            xSemaphoreGive(spiMutex); // LEPAS KUNCI HARDWARE
+            xSemaphoreGive(spiMutex);
           }
           else
           {
@@ -2770,7 +2837,6 @@ void Task_DataLogger(void *parameter)
       lastPrint = millis();
     }
 
-    // Beri napas CPU Core 1
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
@@ -2780,12 +2846,13 @@ void setup()
   Serial.begin(115200);
   delay(1000); // Tunggu sebentar biar serial stabil
 
-  Serial.println("\n=================================");
   Serial.println("SYSTEM BOOT START");
+  esp_task_wdt_init(60, true);
   Serial.printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  Serial.println("=================================");
-
+  Serial.println("[Init] Configuring Watchdog Timer...");
+  esp_task_wdt_init(60, true); // 30 detik timeout
+  Serial.println("  ✓ Watchdog: 60 seconds");
   // Set CPU frequency
   setCpuFrequencyMhz(240);
 
@@ -2951,10 +3018,10 @@ void setup()
   // ========================================================================
   // 5. CREATE TASKS
   // ========================================================================
-  xTaskCreatePinnedToCore(Task_NetworkManagement, "NetworkTask", 16384, NULL, 2, &Task_Core0_Network, 0);
-  xTaskCreatePinnedToCore(Task_DataAcquisition, "DataAcqTask", 4096, NULL, 3, &Task_Core1_DataAcquisition, 1);
-  xTaskCreatePinnedToCore(Task_ModbusClient, "ModbusTask", 4096, NULL, 2, &Task_Core1_ModbusClient, 1);
-  xTaskCreatePinnedToCore(Task_DataLogger, "LoggerTask", 8192, NULL, 1, &Task_Core1_DataLogger, 1);
+  xTaskCreatePinnedToCore(Task_NetworkManagement, "NetworkTask", 20480, NULL, 2, &Task_Core0_Network, 0);
+  xTaskCreatePinnedToCore(Task_DataAcquisition, "DataAcqTask", 12288, NULL, 3, &Task_Core1_DataAcquisition, 1);
+  xTaskCreatePinnedToCore(Task_ModbusClient, "ModbusTask", 10240, NULL, 2, &Task_Core1_ModbusClient, 1);
+  xTaskCreatePinnedToCore(Task_DataLogger, "LoggerTask", 20480, NULL, 1, &Task_Core1_DataLogger, 1);
 }
 
 // ============================================================================
@@ -3314,10 +3381,11 @@ void setupWebServer()
               JsonObject DI = doc.createNestedObject("DI");
               JsonArray DIValue = DI.createNestedArray("value");
               JsonArray DITaskMode = DI.createNestedArray("taskMode");
-
+JsonArray DIName = DI.createNestedArray("name");
               for (int i = 1; i <= jumlahInputDigital; i++) {
                 DIValue.add(digitalInput[i].value);
                 DITaskMode.add(digitalInput[i].taskMode);
+                DIName.add(digitalInput[i].name);
               }
 
               String dataLoad;
@@ -3683,7 +3751,73 @@ float filterSensor(float filterVar, float filterResult_1, float fc)
   filterResult = (filterVar + a * filterResult_1) / (a + 1);
   return filterResult;
 }
+unsigned int readModbusNonBlocking(unsigned int modbusAddress, unsigned int funCode, unsigned int regAddress, unsigned int timeoutMs)
+{
+  unsigned int buffSend[8];
+  unsigned int crcValue;
+  unsigned int returnValue = 0;
+  byte buffModbus[64];
+  int resIndex = 0;
 
+  // 1. Bersihkan Buffer
+  while (SerialModbus.available())
+    SerialModbus.read();
+
+  // 2. Siapkan Request
+  buffSend[0] = modbusAddress;
+  buffSend[1] = funCode;
+  buffSend[2] = parseByte(regAddress, 1);
+  buffSend[3] = parseByte(regAddress, 0);
+  buffSend[4] = 0;
+  buffSend[5] = 1;
+  crcValue = crcModbus(buffSend, 0, 6);
+  buffSend[6] = parseByte(crcValue, 1);
+  buffSend[7] = parseByte(crcValue, 0);
+
+  // 3. Kirim Request
+  for (byte j = 0; j < 8; j++)
+  {
+    SerialModbus.write(buffSend[j]);
+  }
+  SerialModbus.flush();
+
+  // 4. ✅ TUNGGU DENGAN YIELD (Non-Blocking!)
+  unsigned long startTime = millis();
+  while (millis() - startTime < timeoutMs)
+  {
+    if (SerialModbus.available())
+      break;
+    vTaskDelay(1); // ✅ WAJIB! Beri CPU ke task lain
+  }
+
+  if (!SerialModbus.available())
+  {
+    return 0; // Timeout
+  }
+
+  // 5. ✅ Baca dengan Yield
+  vTaskDelay(pdMS_TO_TICKS(10)); // Jeda sebentar biar byte lengkap
+
+  while (SerialModbus.available() && resIndex < 60)
+  {
+    buffModbus[resIndex] = SerialModbus.read();
+    resIndex++;
+  }
+
+  // 6. Parse Data
+  if (resIndex >= 5)
+  {
+    if (buffModbus[0] == modbusAddress && buffModbus[1] == funCode)
+    {
+      if (funCode == 3 || funCode == 4)
+      {
+        returnValue = (buffModbus[3] << 8) | buffModbus[4];
+      }
+    }
+  }
+
+  return returnValue;
+}
 // unsigned int readModbus(unsigned int modbusAddress, unsigned int funCode, unsigned int regAddress)
 // {
 //   unsigned int buffSend[8], crcValue, returnValue;
@@ -3857,10 +3991,15 @@ unsigned int readModbus(unsigned int modbusAddress, unsigned int funCode, unsign
   unsigned int returnValue = 0;
   byte buffModbus[64];
   int resIndex = 0;
+  unsigned long startTime;
 
-  // 1. Bersihkan Buffer
-  while (SerialModbus.available())
+  // [FIX 1] Bounded Loop untuk Clear Buffer (Anti-Hang jika ada noise)
+  int clearCount = 0;
+  while (SerialModbus.available() && clearCount < 100)
+  {
     SerialModbus.read();
+    clearCount++;
+  }
 
   // 2. Siapkan Request
   buffSend[0] = modbusAddress;
@@ -3873,62 +4012,49 @@ unsigned int readModbus(unsigned int modbusAddress, unsigned int funCode, unsign
   buffSend[6] = parseByte(crcValue, 1);
   buffSend[7] = parseByte(crcValue, 0);
 
-  // Debug Request
-  // Serial.print("[TX]: ");
+  // Kirim Request
   for (byte j = 0; j < 8; j++)
   {
     SerialModbus.write(buffSend[j]);
-    // Serial.printf("%02X ", buffSend[j]);
   }
-  // Serial.println();
   SerialModbus.flush();
 
-  // 3. Tunggu Respon
-  unsigned long startTime = millis();
-  while (millis() - startTime < 1000)
+  // 3. Tunggu Respon (Timeout 200ms)
+  startTime = millis();
+  while (millis() - startTime < 200)
   {
     if (SerialModbus.available())
       break;
-    delay(10);
+    vTaskDelay(1); // [FIX 2] Wajib Yield agar Task lain jalan
   }
 
+  // Jika timeout
   if (!SerialModbus.available())
-  {
-    // Serial.println("❌ [Modbus] Timeout! Tidak ada balasan dari TK4S.");
     return 0;
-  }
 
-  delay(50); // Tunggu byte lengkap
+  delay(10); // Tunggu byte lengkap
 
-  // 4. Baca Balasan
-  Serial.print("✅ [Modbus RX Raw]: "); // <--- DEBUG POINT 1
-  while (SerialModbus.available() && resIndex < 60)
+  // 4. Baca Balasan dengan Batas Waktu & Jumlah
+  startTime = millis();
+  while (millis() - startTime < 50 && resIndex < 60) // [FIX 3] Double protection
   {
-    buffModbus[resIndex] = SerialModbus.read();
-    Serial.printf("%02X ", buffModbus[resIndex]); // Print HEX (Contoh: 01 04 02 00 F7 ...)
-    resIndex++;
+    if (SerialModbus.available())
+    {
+      buffModbus[resIndex] = SerialModbus.read();
+      resIndex++;
+    }
   }
-  Serial.println();
 
-  // 5. Validasi
-  if (resIndex >= 3)
+  // 5. Validasi & Ambil Data
+  if (resIndex >= 5) // Minimal 5 byte (Addr, FC, ByteCount, DataH, DataL)
   {
     if (buffModbus[0] == modbusAddress && buffModbus[1] == funCode)
     {
       if (funCode == 3 || funCode == 4)
       {
         returnValue = (buffModbus[3] << 8) | buffModbus[4];
-        Serial.printf("   -> Data Decimal: %d\n", returnValue); // <--- DEBUG POINT 2
       }
     }
-    else
-    {
-      Serial.println("   -> ⚠️ Salah Alamat/Function Code!");
-    }
-  }
-  else
-  {
-    Serial.println("   -> ⚠️ Paket data tidak lengkap/rusak.");
   }
 
   return returnValue;
@@ -4564,23 +4690,19 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
           if (request->hasArg("conversionFactor"))
             digitalInput[i].conversionFactor = request->arg("conversionFactor").toFloat();
-
-          // KETEMU! Langsung simpan flag atau break agar hemat waktu
+          if (digitalInput[i].name != "")
+          {
+            jsonSend[digitalInput[i].name] = digitalInput[i].value;
+            jsonSend[digitalInput[i].name + "_mode"] = digitalInput[i].taskMode;
+          }
           break;
         }
       }
       xSemaphoreGive(jsonMutex); // Lepas Mutex
     }
-
     configureSendTriggerInterrupt(networkSettings);
-
-    // Kirim Respon ke Browser DULUAN sebelum save ke SD Card yang lama
     request->send(200, "text/plain", "Digital Config Saved");
-
-    // Simpan ke Internal & SD Card (Proses Berat dilakukan setelah reply browser)
     saveToJson("/configDigital.json", "digital");
-
-    // Pastikan saveToSDConfig juga pakai spiMutex (sesuai diskusi sebelumnya)
     saveToSDConfig("/configDigital.json", "digital");
   }
 

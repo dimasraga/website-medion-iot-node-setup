@@ -607,11 +607,11 @@ void configNetwork()
     // networkSettings.dhcpMode = "Static (Forced)";
 
     // Serial.println("  [FORCE] Starting Ethernet with Static IP: 10.22.7.3 ...");
-    
+
     // // Syntax: begin(mac, ip, dns, gateway, subnet)
     // Ethernet.begin(mac, localIP, dnsIP, gatewayIP, subnetIP);
     // delay(1000); // Beri waktu untuk inisialisasi PHY
-    
+
     // Serial.println("  ✓ Ethernet configured manually");
     // ini dhcp
     // Parse IP addresses
@@ -654,7 +654,7 @@ void configNetwork()
       delay(1000);
       Serial.println("  ✓ Ethernet configured with static IP");
     }
-// */ //batas dhcp dikomen saja ini 
+    // */ //batas dhcp dikomen saja ini
     // =====================================================================
     // STEP 5: Verify Ethernet Hardware & Link Status
     // =====================================================================
@@ -852,27 +852,27 @@ void saveToSD(String data)
   // Cek apakah sistem file mounted (opsional, tapi aman)
   // if(!SD.totalBytes()) {
   //    Serial.println("SD Card not mounted!");
-  //    return; 
+  //    return;
   // }
 
   // Gunakan Mutex jika perlu (agar tidak bentrok dengan task lain)
   // if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000))) {
 
-    File dataOffline = SD.open("/sensor_data.csv", FILE_APPEND);
-    if (!dataOffline)
-    {
-      errorBlinker.trigger(3, 200);
-      ESP_LOGE("SD Card", "Failed to open file!");
-      errorMessages.addMessage(getTimeNow() + " - Failed to open file for writing!");
-      // JANGAN panggil SD.end() disini
-      return;
-    }
+  File dataOffline = SD.open("/sensor_data.csv", FILE_APPEND);
+  if (!dataOffline)
+  {
+    errorBlinker.trigger(3, 200);
+    ESP_LOGE("SD Card", "Failed to open file!");
+    errorMessages.addMessage(getTimeNow() + " - Failed to open file for writing!");
+    // JANGAN panggil SD.end() disini
+    return;
+  }
 
-    dataOffline.println(data);
-    dataOffline.close();
-    ESP_LOGI("SD Card", "✓ Data saved");
-    
-    // xSemaphoreGive(sdMutex);
+  dataOffline.println(data);
+  dataOffline.close();
+  ESP_LOGI("SD Card", "✓ Data saved");
+
+  // xSemaphoreGive(sdMutex);
   // }
 }
 
@@ -1002,171 +1002,115 @@ void saveToSD(String data)
 // }
 
 // uji coba saja
+
 void sendBackupData()
 {
-  // ============================================================
-  // 1. CEK KETERSEDIAAN FILE BACKUP
-  // ============================================================
-  // Kita tidak memanggil SD.begin() lagi di sini untuk menghindari 
-  // pemutusan koneksi Ethernet (Konflik SPI).
-  
-  if (!SD.exists("/sensor_data.csv")) {
-    // File tidak ditemukan, berarti tidak ada data yang perlu dikirim
+  if (!SD.exists("/sensor_data.csv"))
     return;
-  }
 
   Serial.println("Checking SD card for backup data...");
 
+  // Gunakan Mutex SD jika memungkinkan
   File dataOffline = SD.open("/sensor_data.csv", FILE_READ);
   if (!dataOffline)
   {
-    errorBlinker.trigger(3, 200);
-    ESP_LOGE("SD Card", "Failed to open file for reading!");
-    errorMessages.addMessage(getTimeNow() + " - Failed to open file for reading!");
+    ESP_LOGE("SD", "Failed to open backup file");
     return;
   }
 
   size_t fileSize = dataOffline.size();
-  ESP_LOGI("SD Card", "Backup file size: %d bytes", fileSize);
-
   if (fileSize < 10)
   {
-    Serial.println("Backup file empty or invalid");
     dataOffline.close();
-    // Opsional: Hapus file kosong agar tidak menumpuk
-    SD.remove("/sensor_data.csv");
+    SD.remove("/sensor_data.csv"); // Hapus file kosong/sampah
     return;
   }
 
-  // ============================================================
-  // 2. PROSES PENGIRIMAN DATA
-  // ============================================================
-  String jsonData = "";
-  bool firstLine = true;
-  const int MAX_LENGTH = 5000;
+  // Definisikan Client secara lokal tapi perhatikan Stack (sudah diperbesar di main.cpp)
   WiFiClientSecure client;
   HTTPClient https;
-  client.setInsecure(); // Abaikan validasi sertifikat SSL
+  client.setInsecure(); // Bypass SSL cert check
+
+  String jsonData = "";
+  // Pre-allocate memori untuk mencegah fragmentasi
+  jsonData.reserve(2048);
+
+  bool firstLine = true;
+  int count = 0;
 
   while (dataOffline.available())
   {
-    vTaskDelay(1);
     String line = dataOffline.readStringUntil('\n');
-    line.trim(); // Hilangkan spasi/newline di awal/akhir
+    line.trim();
+    if (line.length() < 5)
+      continue;
 
-    if (line.length() < 10) continue; // Skip baris kosong/rusak
-
-    // Format ulang JSON (menghilangkan kurung siku array per baris)
+    // Format JSON Array manual
     line.replace("[", "");
     line.replace("]", "");
 
     if (!firstLine)
       jsonData += ",";
-    else
-      firstLine = false;
-
     jsonData += line;
+    firstLine = false;
+    count++;
 
-    // Jika buffer penuh, kirim data (Chunking)
-    if (jsonData.length() >= MAX_LENGTH)
+    // KIRIM PER 10 DATA (Chunking)
+    // Jangan tunggu sampai 5000 karakter, terlalu berisiko
+    if (count >= 10 || jsonData.length() > 2000)
     {
       String fullData = "[" + jsonData + "]";
-      
-      // Cek koneksi (WiFi atau Ethernet)
-      if (!(WiFi.status() == WL_CONNECTED || networkSettings.networkMode == "Ethernet"))
+
+      if (WiFi.status() == WL_CONNECTED || networkSettings.networkMode == "Ethernet")
       {
-        Serial.println("Connection lost during backup send. Aborting.");
-        dataOffline.close();
-        return;
+        // Mulai koneksi HTTP
+        if (https.begin(client, "https://sensor-logger-trial.medionindonesia.com/api/v1/AddBackupList"))
+        {
+          https.setAuthorization(networkSettings.mqttUsername.c_str(), networkSettings.mqttPassword.c_str());
+          https.addHeader("Content-Type", "application/json");
+          https.setTimeout(5000); // Timeout jangan terlalu lama (5 detik)
+
+          int httpCode = https.POST(fullData);
+
+          if (httpCode > 0)
+          {
+            Serial.printf("Backup Chunk Sent: %d code\n", httpCode);
+            networkSettings.connStatus = "Connected";
+          }
+          else
+          {
+            Serial.printf("Backup Send Failed: %s\n", https.errorToString(httpCode).c_str());
+          }
+          https.end(); // Wajib end untuk lepas memori SSL
+        }
       }
 
-      https.begin(client, "https://sensor-logger-trial.medionindonesia.com/api/v1/AddBackupList");
-      https.setAuthorization(networkSettings.mqttUsername.c_str(), networkSettings.mqttPassword.c_str());
-      https.addHeader("Content-Type", "application/json");
-      https.setTimeout(10000);
-      
-      int httpResponseSent = https.POST(fullData);
-
-      if (httpResponseSent >= 200 && httpResponseSent <= 204)
-      {
-        #ifdef DEBUG
-        Serial.println("Backup data chunk sent successfully!");
-        #endif
-        networkSettings.connStatus = "Connected";
-      }
-      else
-      {
-        Serial.printf("Failed to send backup data chunk (HTTP %d)\n", httpResponseSent);
-        // Jika gagal kirim chunk, kita stop dulu agar data tidak hilang
-        // (Nanti akan dicoba lagi di loop berikutnya)
-        networkSettings.connStatus = "Not Connected";
-        https.end();
-        dataOffline.close();
-        return; 
-      }
-      https.end();
-
-      jsonData = ""; // Reset buffer
+      // Reset buffer
+      jsonData = "";
+      jsonData.reserve(2048);
       firstLine = true;
+      count = 0;
+      vTaskDelay(10); // Beri jeda agar Watchdog tidak marah
     }
   }
 
-  // ============================================================
-  // 3. KIRIM SISA DATA TERAKHIR
-  // ============================================================
-  if (jsonData.length() > 0)
+  // Kirim sisa data jika ada
+  if (jsonData.length() > 5)
   {
     String fullData = "[" + jsonData + "]";
-    
-    if (WiFi.status() == WL_CONNECTED || networkSettings.networkMode == "Ethernet")
+    if (https.begin(client, "https://sensor-logger-trial.medionindonesia.com/api/v1/AddBackupList"))
     {
-      https.begin(client, "https://sensor-logger-trial.medionindonesia.com/api/v1/AddBackupList");
       https.setAuthorization(networkSettings.mqttUsername.c_str(), networkSettings.mqttPassword.c_str());
       https.addHeader("Content-Type", "application/json");
-      https.setTimeout(10000);
-      
-      int httpResponseSent = https.POST(fullData);
-
-      if (httpResponseSent >= 200 && httpResponseSent <= 204)
-      {
-        #ifdef DEBUG
-        Serial.println("Final backup data sent!");
-        #endif
-        networkSettings.connStatus = "Connected";
-      }
-      else 
-      {
-         Serial.printf("Failed to send final backup data (HTTP %d)\n", httpResponseSent);
-         networkSettings.connStatus = "Not Connected";
-         https.end();
-         dataOffline.close();
-         return;
-      }
+      https.POST(fullData);
       https.end();
     }
   }
 
   dataOffline.close();
 
-  // ============================================================
-  // 4. HAPUS FILE SETELAH SEMUA TERKIRIM
-  // ============================================================
-  if (networkSettings.connStatus == "Connected")
-  {
-    Serial.println("All backup data sent successfully. Clearing file.");
-    
-    // Cara paling aman mengosongkan file di ESP32:
-    // 1. Hapus file lama
-    SD.remove("/sensor_data.csv");
-    
-    // 2. Buat file baru kosong (opsional, saveToSD akan membuatnya otomatis jika tidak ada)
-    File clearFile = SD.open("/sensor_data.csv", FILE_WRITE);
-    if (clearFile)
-    {
-      clearFile.close();
-      Serial.println("Backup file cleared and recreated!");
-    }
-  }
+  // Hapus file setelah sukses (atau rename ke .bak jika ingin aman)
+  SD.remove("/sensor_data.csv");
+  Serial.println("Backup process finished & file cleared.");
 }
-
 #endif // NETWORK_FUNCTIONS_HPP
