@@ -37,8 +37,7 @@ extern bool flagGetJobNum;
 extern String jobNum;
 extern ErrorBlinker errorBlinker;
 extern ErrorMessages errorMessages;
-extern SemaphoreHandle_t sdMutex; 
-extern SemaphoreHandle_t jsonMutex;
+
 extern String getTimeNow();
 extern String getTimeDateNow();
 
@@ -127,9 +126,6 @@ void checkWiFi(int timeout)
 {
   if (networkSettings.networkMode == "WiFi")
   {
-    // =================================================================
-    // LOGIKA BARU: Jika sudah "menyerah", jangan lakukan apapun
-    // =================================================================
     if (staConnectionAttemptFailed)
     {
       return; // Berhenti mencoba koneksi STA
@@ -598,27 +594,27 @@ void configNetwork()
     Serial.println("[4/5] Initializing Ethernet...");
     Ethernet.init(ETH_CS); // Set CS pin untuk W5500
     // ip static
-    IPAddress localIP(10, 22, 7, 3);      // IP Requested
-    IPAddress gatewayIP(10, 22, 7, 1);    // Asumsi Gateway default
-    IPAddress subnetIP(255, 255, 255, 0); // Subnet standard
-    IPAddress dnsIP(8, 8, 8, 8);          // DNS Google
+    // IPAddress localIP(10, 22, 7, 3);      // IP Requested
+    // IPAddress gatewayIP(10, 22, 7, 1);    // Asumsi Gateway default
+    // IPAddress subnetIP(255, 255, 255, 0); // Subnet standard
+    // IPAddress dnsIP(8, 8, 8, 8);          // DNS Google
 
-    // Update variable global agar tampilan di web/serial benar
-    networkSettings.ipAddress = localIP.toString();
-    networkSettings.ipGateway = gatewayIP.toString();
-    networkSettings.subnetMask = subnetIP.toString();
-    networkSettings.ipDNS = dnsIP.toString();
-    networkSettings.dhcpMode = "Static (Forced)";
+    // // Update variable global agar tampilan di web/serial benar
+    // networkSettings.ipAddress = localIP.toString();
+    // networkSettings.ipGateway = gatewayIP.toString();
+    // networkSettings.subnetMask = subnetIP.toString();
+    // networkSettings.ipDNS = dnsIP.toString();
+    // networkSettings.dhcpMode = "Static (Forced)";
 
-    Serial.println("  [FORCE] Starting Ethernet with Static IP: 10.22.7.3 ...");
+    // Serial.println("  [FORCE] Starting Ethernet with Static IP: 10.22.7.3 ...");
     
-    // Syntax: begin(mac, ip, dns, gateway, subnet)
-    Ethernet.begin(mac, localIP, dnsIP, gatewayIP, subnetIP);
-    delay(1000); // Beri waktu untuk inisialisasi PHY
+    // // Syntax: begin(mac, ip, dns, gateway, subnet)
+    // Ethernet.begin(mac, localIP, dnsIP, gatewayIP, subnetIP);
+    // delay(1000); // Beri waktu untuk inisialisasi PHY
     
-    Serial.println("  ✓ Ethernet configured manually");
+    // Serial.println("  ✓ Ethernet configured manually");
     // ini dhcp
-    /*
+    // Parse IP addresses
     IpAddressSplit hasilParsing;
     hasilParsing = parsingIP(networkSettings.ipAddress);
     IPAddress localIP(hasilParsing.ip[0], hasilParsing.ip[1],
@@ -658,7 +654,7 @@ void configNetwork()
       delay(1000);
       Serial.println("  ✓ Ethernet configured with static IP");
     }
-*/ //batas dhcp dikomen saja ini 
+// */ //batas dhcp dikomen saja ini 
     // =====================================================================
     // STEP 5: Verify Ethernet Hardware & Link Status
     // =====================================================================
@@ -846,38 +842,38 @@ void sendDataHTTP(String data, String serverPath, String httpUsername, String ht
 //   SD.end();
 // }
 
-// =================================================================
-// PERUBAHAN: saveToSD dengan Mutex & Tanpa SD.begin ulang
-// =================================================================
-// Di dalam NetworkFunctions.hpp
-
 void saveToSD(String data)
 {
-  // Cek apakah Mutex SD Card tersedia (tunggu maks 1 detik)
-  if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000))) 
-  {
-    // Buka file mode Append (tambah data di baris baru)
-    // File khusus test: /modbus.csv
-    File dataFile = SD.open("/modbus.csv", FILE_APPEND);
-    
-    if (dataFile)
+  Serial.println("Saving to SD card...");
+
+  // HAPUS SD.begin(5)! Kita asumsikan sudah nyala dari setup()
+  // HAPUS SD.end()! Biarkan jalur SPI tetap hidup untuk Ethernet
+
+  // Cek apakah sistem file mounted (opsional, tapi aman)
+  // if(!SD.totalBytes()) {
+  //    Serial.println("SD Card not mounted!");
+  //    return; 
+  // }
+
+  // Gunakan Mutex jika perlu (agar tidak bentrok dengan task lain)
+  // if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000))) {
+
+    File dataOffline = SD.open("/sensor_data.csv", FILE_APPEND);
+    if (!dataOffline)
     {
-      dataFile.println(data);
-      dataFile.close();
-      Serial.println("💾 [SD] Data Modbus Saved: " + data);
-    }
-    else
-    {
-      Serial.println("❌ [SD] Gagal buka file /modbus.csv");
+      errorBlinker.trigger(3, 200);
+      ESP_LOGE("SD Card", "Failed to open file!");
+      errorMessages.addMessage(getTimeNow() + " - Failed to open file for writing!");
+      // JANGAN panggil SD.end() disini
+      return;
     }
 
-    // Lepaskan Mutex agar Ethernet bisa pakai SPI lagi
-    xSemaphoreGive(sdMutex);
-  }
-  else
-  {
-    Serial.println("⚠️ [SD] Mutex Busy/Timeout (Skipping Save)");
-  }
+    dataOffline.println(data);
+    dataOffline.close();
+    ESP_LOGI("SD Card", "✓ Data saved");
+    
+    // xSemaphoreGive(sdMutex);
+  // }
 }
 
 // void sendBackupData()
@@ -1054,6 +1050,7 @@ void sendBackupData()
 
   while (dataOffline.available())
   {
+    vTaskDelay(1);
     String line = dataOffline.readStringUntil('\n');
     line.trim(); // Hilangkan spasi/newline di awal/akhir
 

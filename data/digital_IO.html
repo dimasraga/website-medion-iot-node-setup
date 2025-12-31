@@ -77,22 +77,21 @@
                         <div class="mb-3">
                             <label for="taskMode" class="form-label">Task Configuration:</label>
                             <select class="form-control" id="taskMode" name="taskMode">
-                                <option>Normal</option>
-                                <option>Counting</option>
-                                <option>Cycle Time</option>
-                                <option>Run Time</option>
-                                <option>Pulse Mode</option>
+                                <option value="Normal">Normal</option>
+                                <option value="Counting">Counting</option>
+                                <option value="Cycle Time">Cycle Time</option>
+                                <option value="Run Time">Run Time</option>
+                                <option value="Pulse Mode">Pulse Mode</option>
                             </select>
                         </div>
 
                         <div class="mb-3" id="inputStateDiv">
                             <label for="inputState" class="form-label">Active State:</label>
                             <select class="form-control" id="inputState" name="inputState">
-                                <option>High</option>
-                                <option>Low</option>
+                                <option value="High">High</option>
+                                <option value="Low">Low</option>
                             </select>
                         </div>
-
                         <div class="mb-3" id="conversionFactorDiv" style="display: none;">
                             <label for="conversionFactor" class="form-label">Conversion Factor:</label>
                             <input type="number" class="form-control" id="conversionFactor" name="conversionFactor"
