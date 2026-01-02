@@ -2358,34 +2358,114 @@ void Task_DataAcquisition(void *parameter)
     // ------------------------------------------------------------------------
     // A. BACA ANALOG (Setiap 100ms) - [Tidak Berubah]
     // ------------------------------------------------------------------------
-    if (millis() - lastReadAnalog >= 100)
+    // if (millis() - lastReadAnalog >= 100)
+    // {
+    //   if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)))
+    //   {
+    //     for (byte i = 1; i < jumlahInputAnalog + 1; i++)
+    //     {
+    //       int16_t valueADC = ads.readADC(i - 1);
+    //       if (analogInput[i].filter)
+    //         analogInput[i].adcValue = filterSensor(valueADC, analogInput[i].adcValue, analogInput[i].filterPeriod);
+    //       else
+    //         analogInput[i].adcValue = valueADC;
+
+    //       // Scaling sederhana (biar ringkas)
+    //       float inMax = 26666.67;
+    //       float outMax = analogInput[i].scaling ? analogInput[i].highLimit : (analogInput[i].inputType == "4-20 mA" || analogInput[i].inputType == "0-20 mA" ? 20.0 : 10.0);
+    //       analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0, inMax, 0, outMax);
+
+    //       sensorData.analogValues[i] = analogInput[i].mapValue;
+
+    //       // Update Modbus (disederhanakan)
+    //       mbIP.Ireg(i + 9, analogInput[i].adcValue);
+    //       mbIP.Ireg(i - 1, analogInput[i].mapValue * 100);
+    //     }
+    //     xSemaphoreGive(i2cMutex);
+    //   }
+    //   lastReadAnalog = millis();
+    // }
+if (millis() - lastReadAnalog >= 100)
     {
+      // Pastikan Mutex I2C aman
       if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)))
       {
-        for (byte i = 1; i < jumlahInputAnalog + 1; i++)
+        for (byte i = 1; i <= jumlahInputAnalog; i++)
         {
+          // 1. BACA DATA MENTAH DARI CHIP
           int16_t valueADC = ads.readADC(i - 1);
-          if (analogInput[i].filter)
+
+          // 2. FILTER SINYAL (Cegah Stuck/Inf)
+          if (isnan(analogInput[i].adcValue) || isinf(analogInput[i].adcValue)) {
+             analogInput[i].adcValue = valueADC; // Reset jika error
+          }
+
+          if (analogInput[i].filter) {
+            // Gunakan fungsi filter yang aman
             analogInput[i].adcValue = filterSensor(valueADC, analogInput[i].adcValue, analogInput[i].filterPeriod);
-          else
+          } else {
             analogInput[i].adcValue = valueADC;
+          }
 
-          // Scaling sederhana (biar ringkas)
+          // 3. HITUNG ARUS MENTAH (mA)
+          // Asumsi hardware standar: Resistor 250 Ohm -> inMax = 26666.67
           float inMax = 26666.67;
-          float outMax = analogInput[i].scaling ? analogInput[i].highLimit : (analogInput[i].inputType == "4-20 mA" || analogInput[i].inputType == "0-20 mA" ? 20.0 : 10.0);
-          analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0, inMax, 0, outMax);
+          float currentMA = (analogInput[i].adcValue / inMax) * 20.0;
 
+          // ==================================================================
+          // [BARU] 4. TERAPKAN KALIBRASI (y = mx + c) <-- INI YANG HILANG!
+          // ==================================================================
+          // Bagian ini wajib ada agar angka m dan c dari web berfungsi.
+          if (analogInput[i].calibration) {
+             // Rumus: mA_Baru = (mA_Lama * Gradient) + Constant
+             currentMA = (currentMA * analogInput[i].mValue) + analogInput[i].cValue;
+          }
+          // ==================================================================
+
+          // (Opsional) Update nilai ADC di struct biar tampilan 'Raw Value' di Web ikut terkoreksi
+          analogInput[i].adcValue = (currentMA / 20.0) * inMax;
+
+          // 5. SCALING KE SATUAN ENGINEERING (Suhu, Tekanan, dll)
+          if (analogInput[i].scaling) 
+          {
+            float low = analogInput[i].lowLimit;
+            float high = analogInput[i].highLimit;
+            float range = high - low;
+
+            if (analogInput[i].inputType == "4-20 mA") {
+              if (range != 0) {
+                 analogInput[i].mapValue = ((currentMA - 4.0) * range / 16.0) + low;
+              } else {
+                 analogInput[i].mapValue = 0;
+              }
+              // Batas bawah (biar ga minus aneh-aneh kalau sensor lepas)
+              if (currentMA < 3.0) analogInput[i].mapValue = low;
+            } 
+            else if (analogInput[i].inputType == "0-20 mA") {
+              analogInput[i].mapValue = (currentMA / 20.0 * range) + low;
+            }
+            else {
+              // 0-10V atau lainnya
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0, inMax, low, high);
+            }
+          } 
+          else 
+          {
+            // Jika scaling mati, tampilkan Arus (mA)
+            analogInput[i].mapValue = currentMA;
+          }
+
+          // Simpan Data
           sensorData.analogValues[i] = analogInput[i].mapValue;
-
-          // Update Modbus (disederhanakan)
-          mbIP.Ireg(i + 9, analogInput[i].adcValue);
-          mbIP.Ireg(i - 1, analogInput[i].mapValue * 100);
+          
+          // Update Modbus
+          mbIP.Ireg(i + 9, (int)analogInput[i].adcValue);
+          mbIP.Ireg(i - 1, (int)(analogInput[i].mapValue * 100));
         }
         xSemaphoreGive(i2cMutex);
       }
       lastReadAnalog = millis();
     }
-
     // ------------------------------------------------------------------------
     // B. BACA DIGITAL (Setiap 50ms) - [Logic Utama]
     // ------------------------------------------------------------------------
@@ -2475,10 +2555,14 @@ void Task_DataAcquisition(void *parameter)
       for (int i = 1; i <= jumlahInputAnalog; i++)
       {
         // Menggunakan String() biasa lebih aman daripada printf float kompleks jika stack terbatas
-        Serial.print("AI-"); Serial.print(i);
-        Serial.print(" | Val: "); Serial.print(analogInput[i].mapValue, 2);
-        Serial.print(" | Raw: "); Serial.print(analogInput[i].adcValue);
-        Serial.print(" | Type: "); Serial.println(analogInput[i].inputType);
+        Serial.print("AI-");
+        Serial.print(i);
+        Serial.print(" | Val: ");
+        Serial.print(analogInput[i].mapValue, 2);
+        Serial.print(" | Raw: ");
+        Serial.print(analogInput[i].adcValue);
+        Serial.print(" | Type: ");
+        Serial.println(analogInput[i].inputType);
       }
       Serial.println("\n=== DIGITAL INPUT STATUS ===");
       for (int i = 1; i <= jumlahInputDigital; i++)
@@ -3347,53 +3431,64 @@ void setupWebServer()
 
   server.on("/homeLoad", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-              doc = DynamicJsonDocument(4096);
-              Serial.println(request->arg("input"));
-              unsigned char id = request->arg("input").toInt();
-              doc["networkMode"] = networkSettings.networkMode;
-              doc["ssid"] = networkSettings.ssid;
-              doc["ipAddress"] = networkSettings.networkMode == "WiFi" ? WiFi.localIP().toString() : networkSettings.ipAddress;
-              doc["macAddress"] = networkSettings.networkMode == "WiFi" ? WiFi.macAddress() : networkSettings.macAddress;
-              doc["protocolMode"] = networkSettings.protocolMode;
-              doc["endpoint"] = networkSettings.endpoint;
-              doc["connStatus"] = networkSettings.connStatus;
-              doc["jobNumber"] = jobNum;
-              doc["sendInterval"] = networkSettings.sendInterval;
-              doc["datetime"] = getTimeDateNow();
+              // Ambil Mutex agar data konsisten
+              if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100))) 
+              {
+                doc = DynamicJsonDocument(4096);
+                
+                // --- Data Network & System ---
+                doc["networkMode"] = networkSettings.networkMode;
+                doc["ssid"] = networkSettings.ssid;
+                doc["ipAddress"] = (networkSettings.networkMode == "WiFi") ? WiFi.localIP().toString() : networkSettings.ipAddress;
+                doc["macAddress"] = (networkSettings.networkMode == "WiFi") ? WiFi.macAddress() : networkSettings.macAddress;
+                doc["protocolMode"] = networkSettings.protocolMode;
+                doc["endpoint"] = networkSettings.endpoint;
+                doc["connStatus"] = networkSettings.connStatus;
+                doc["jobNumber"] = jobNum;
+                doc["sendInterval"] = networkSettings.sendInterval;
+                doc["datetime"] = getTimeDateNow();
 
-              JsonArray enableAI = doc.createNestedArray("enAI");
-              for (int i = 1; i <= jumlahInputAnalog; i++) {
-                if (analogInput[i].name != "") {
-                  enableAI.add(1);
-                } else {
-                  enableAI.add(0);
+                // --- Data Analog Input ---
+                JsonObject AI = doc.createNestedObject("AI");
+                JsonArray AIRawValue = AI.createNestedArray("rawValue");
+                JsonArray AIScaledValue = AI.createNestedArray("scaledValue");
+                
+                // [FIX] BARIS INI WAJIB DIAKTIFKAN (Hapus tanda //)
+                JsonArray EnAI = AI.createNestedArray("enAI"); 
+                // ------------------------------------------------
+
+                for (int i = 1; i <= jumlahInputAnalog; i++) {
+                  AIRawValue.add(analogInput[i].adcValue);
+                  AIScaledValue.add(analogInput[i].mapValue);
+                  
+                  // [FIX] BARIS INI WAJIB DIAKTIFKAN (Hapus tanda //)
+                  // Jika nama sensor terisi, kirim 1 (aktif). Jika kosong, kirim 0.
+                  EnAI.add(analogInput[i].name != "" ? 1 : 0);
+                  // ------------------------------------------------
                 }
-              }
 
-              JsonObject AI = doc.createNestedObject("AI");
-              JsonArray AIRawValue = AI.createNestedArray("rawValue");
-              JsonArray AIScaledValue = AI.createNestedArray("scaledValue");
-              for (int i = 1; i <= jumlahInputAnalog; i++) {
-                AIRawValue.add(analogInput[i].adcValue);
-                AIScaledValue.add(analogInput[i].mapValue);
-              }
+                // --- Data Digital Input ---
+                JsonObject DI = doc.createNestedObject("DI");
+                JsonArray DIValue = DI.createNestedArray("value");
+                JsonArray DITaskMode = DI.createNestedArray("taskMode");
+                JsonArray DIName = DI.createNestedArray("name");
 
-              JsonObject DI = doc.createNestedObject("DI");
-              JsonArray DIValue = DI.createNestedArray("value");
-              JsonArray DITaskMode = DI.createNestedArray("taskMode");
-JsonArray DIName = DI.createNestedArray("name");
-              for (int i = 1; i <= jumlahInputDigital; i++) {
-                DIValue.add(digitalInput[i].value);
-                DITaskMode.add(digitalInput[i].taskMode);
-                DIName.add(digitalInput[i].name);
-              }
+                for (int i = 1; i <= jumlahInputDigital; i++) {
+                  DIValue.add(digitalInput[i].value);
+                  DITaskMode.add(digitalInput[i].taskMode);
+                  DIName.add(digitalInput[i].name);
+                }
 
-              String dataLoad;
-              serializeJson(doc, dataLoad);
-              // Serial.println("");
-              // Serial.println("MASUK");
-              // Serial.println(dataLoad);
-              request->send(200, "application/json", dataLoad); });
+                String dataLoad;
+                serializeJson(doc, dataLoad);
+                xSemaphoreGive(jsonMutex);
+                
+                request->send(200, "application/json", dataLoad);
+              }
+              else 
+              {
+                request->send(503, "application/json", "{}");
+              } });
   // WiFi Status and Diagnostic Endpoint
   server.on("/wifiStatus", HTTP_GET, [](AsyncWebServerRequest *request)
             {
