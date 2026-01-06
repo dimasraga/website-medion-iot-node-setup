@@ -1618,24 +1618,26 @@ String getPostValue(String data, String key)
 // ============================================================================
 // ETHERNET WEB SERVER HANDLER (FIXED VERSION - ANTI HANG)
 // ============================================================================
+// ============================================================================
+// ETHERNET WEB SERVER HANDLER (FULL VERSION - FIXED)
+// ============================================================================
 void handleEthernetClient()
 {
   EthernetClient client = ethServer.available();
-  if (!client)
-    return;
+  if (!client) return;
 
-  // [FIX 1] SET TIMEOUT SOCKET (KRUSIAL!)
-  client.setTimeout(100);           // 100ms timeout untuk read/write
-  client.setConnectionTimeout(500); // 500ms timeout koneksi
+  // [SETTING] Timeout & Buffer
+  client.setTimeout(100);
+  client.setConnectionTimeout(500);
 
   String req = "";
   String postData = "";
   unsigned long timeout = millis();
   bool headerFinished = false;
   int contentLength = 0;
-  uint8_t tempBuf[256]; // [FIX 2] Kurangi dari 512 → 256 (save RAM)
+  uint8_t tempBuf[256];
 
-  // [FIX 3] TIMEOUT KETAT: 1 DETIK (dari 2 detik)
+  // 1. READ REQUEST (Membaca Data dari Browser)
   while (client.connected() && millis() - timeout < 1000)
   {
     if (client.available())
@@ -1645,61 +1647,39 @@ void handleEthernetClient()
       {
         if (!headerFinished)
         {
-          for (int i = 0; i < len; i++)
-          {
+          for (int i = 0; i < len; i++) {
             req += (char)tempBuf[i];
-            if (req.endsWith("\r\n\r\n"))
-            {
+            if (req.endsWith("\r\n\r\n")) {
               headerFinished = true;
-
               String lowerReq = req;
               lowerReq.toLowerCase();
               int clIndex = lowerReq.indexOf("content-length:");
-              if (clIndex != -1)
-              {
-                contentLength = lowerReq.substring(clIndex + 15,
-                                                   lowerReq.indexOf('\n', clIndex))
-                                    .toInt();
+              if (clIndex != -1) {
+                contentLength = lowerReq.substring(clIndex + 15, lowerReq.indexOf('\n', clIndex)).toInt();
               }
-
-              for (int j = i + 1; j < len; j++)
-                postData += (char)tempBuf[j];
+              for (int j = i + 1; j < len; j++) postData += (char)tempBuf[j];
               break;
             }
           }
         }
-        else
-        {
-          for (int i = 0; i < len; i++)
-            postData += (char)tempBuf[i];
+        else {
+          for (int i = 0; i < len; i++) postData += (char)tempBuf[i];
         }
       }
-
-      if (headerFinished)
-      {
-        if (req.startsWith("GET"))
-          break;
-        if (req.startsWith("POST") && postData.length() >= contentLength)
-          break;
+      if (headerFinished) {
+        if (req.startsWith("GET")) break;
+        if (req.startsWith("POST") && postData.length() >= contentLength) break;
       }
     }
-    vTaskDelay(1); // Beri waktu CPU task lain
+    vTaskDelay(1);
   }
 
-  if (req.length() == 0)
-  {
-    client.stop();
-    return;
-  }
+  if (req.length() == 0) { client.stop(); return; }
 
-  // === PARSING URL ===
+  // 2. PARSE URL & METHOD
   int firstSpace = req.indexOf(' ');
   int secondSpace = req.indexOf(' ', firstSpace + 1);
-  if (firstSpace == -1 || secondSpace == -1)
-  {
-    client.stop();
-    return;
-  }
+  if (firstSpace == -1 || secondSpace == -1) { client.stop(); return; }
 
   String method = req.substring(0, firstSpace);
   String fullUrl = req.substring(firstSpace + 1, secondSpace);
@@ -1707,57 +1687,28 @@ void handleEthernetClient()
 
   String basePath = fullUrl;
   String queryParams = "";
-  if (fullUrl.indexOf("?") > 0)
-  {
+  if (fullUrl.indexOf("?") > 0) {
     basePath = fullUrl.substring(0, fullUrl.indexOf("?"));
     queryParams = fullUrl.substring(fullUrl.indexOf("?") + 1);
   }
 
-  // === OPTIONS (CORS) ===
-  if (method == "OPTIONS")
-  {
-    client.println("HTTP/1.1 204 No Content");
-    client.println("Access-Control-Allow-Origin: *");
-    client.println("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-    client.println("Access-Control-Allow-Headers: Content-Type");
-    client.println("Connection: close");
-    client.println();
-    client.stop();
-    return;
-  }
-
-  // === HELPER LAMBDA ===
+  // 3. PARSE JSON BODY (Penting untuk Save Config dari Web Modern)
   bool isJson = false;
-  DynamicJsonDocument jsonBody(1024); // [FIX 5] Kurangi dari 2048 → 1024
-
-  if (method == "POST")
-  {
-    postData.trim();
-    
-    // [DEBUG] Tampilkan data yang dikirim website ke Serial Monitor
-    Serial.println("\n>>> [ETH POST] Data Received:");
-    Serial.println(basePath);
-    if (postData.length() > 500) Serial.println(postData.substring(0, 500) + "... [Truncated]");
-    else Serial.println(postData);
-    Serial.println("--------------------------------");
-
-    if (postData.startsWith("{") || postData.startsWith("["))
-    {
+  DynamicJsonDocument jsonBody(2048);
+  postData.trim();
+  if (method == "POST" && (postData.startsWith("{") || postData.startsWith("["))) {
       DeserializationError error = deserializeJson(jsonBody, postData);
       if (!error) isJson = true;
-      else Serial.println("JSON Parse Error: " + String(error.c_str()));
-    }
   }
 
-  auto getValue = [&](String key) -> String
-  {
-    if (isJson && jsonBody.containsKey(key))
-      return jsonBody[key].as<String>();
+  // Helper Lambda: Otomatis pilih ambil data dari JSON atau Form Data
+  auto getValue = [&](String key) -> String {
+    if (isJson && jsonBody.containsKey(key)) return jsonBody[key].as<String>();
     return getPostValue(postData, key);
   };
 
   // ========================================================================
-  // POST HANDLING (SAVE CONFIG)
+  // A. POST HANDLING (SAVE CONFIGURATION)
   // ========================================================================
   if (method == "POST")
   {
@@ -1767,45 +1718,74 @@ void handleEthernetClient()
     client.println("Connection: close");
     client.println();
 
-    // --- A. SAVE MODBUS SETUP (FIXED) ---
-    // Logika diperbaiki agar bisa menyimpan FULL JSON (termasuk list sensor)
-    if (basePath == "/modbus_setup")
+    // --- 1. SAVE ANALOG INPUT (FIXED JSON SUPPORT) ---
+    if (basePath == "/analog_input" || getValue("inputPin").startsWith("AI"))
     {
-       if (isJson) {
-          // [PENTING] Copy seluruh struktur JSON (termasuk nameData/Polling list) ke global var
-          jsonParam = jsonBody; 
-          
-          // Update struct helper agar sinkron
-          modbusParam.baudrate = jsonParam["baudrate"];
-          modbusParam.parity = jsonParam["parity"].as<String>();
-          modbusParam.stopBit = jsonParam["stopBit"];
-          modbusParam.dataBit = jsonParam["dataBit"];
-          modbusParam.scanRate = jsonParam["scanRate"];
-       } 
-       else if (getValue("baudrate") != "") {
-          // Fallback jika form biasa (hanya param dasar)
-          modbusParam.baudrate = getValue("baudrate").toInt();
-          modbusParam.parity = getValue("parity");
-          modbusParam.stopBit = getValue("stopBit").toInt();
-          modbusParam.dataBit = getValue("dataBit").toInt();
-          modbusParam.scanRate = getValue("scanRate").toFloat();
-          
-          jsonParam["baudrate"] = modbusParam.baudrate;
-          jsonParam["parity"] = modbusParam.parity;
-          jsonParam["stopBit"] = modbusParam.stopBit;
-          jsonParam["dataBit"] = modbusParam.dataBit;
-          jsonParam["scanRate"] = modbusParam.scanRate;
-       }
+      String targetPin = getValue("inputPin");
+      if (targetPin.startsWith("AI"))
+      {
+        int id = targetPin.substring(2).toInt();
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
+        {
+          analogInput[id].name = getValue("name");
+          analogInput[id].inputType = getValue("inputType");
 
-       stringParam = "";
-       serializeJson(jsonParam, stringParam); // Simpan ke stringParam
-       saveToJson("/modbusSetup.json", "modbusSetup");
-       saveToSDConfig("/modbusSetup.json", "modbusSetup");
-       client.print("Modbus Config Saved");
-       Serial.println("✅ Modbus Configuration Saved!");
+          // [FIX UTAMA] Deteksi Boolean dari JSON vs Form
+          if (isJson) {
+            analogInput[id].filter = jsonBody["filter"];
+            analogInput[id].scaling = jsonBody["scaling"];        
+            analogInput[id].calibration = jsonBody["calibration"];
+          } else {
+            // Fallback Form Data (indexOf)
+            analogInput[id].filter = (postData.indexOf("filter=") != -1);
+            analogInput[id].scaling = (postData.indexOf("scaling=") != -1);
+            analogInput[id].calibration = (postData.indexOf("calibration=") != -1);
+          }
+
+          // Ambil Angka (getValue otomatis handle JSON)
+          analogInput[id].lowLimit = getValue("lowLimit").toFloat();
+          analogInput[id].highLimit = getValue("highLimit").toFloat();
+          analogInput[id].mValue = getValue("mValue").toFloat();
+          analogInput[id].cValue = getValue("cValue").toFloat();
+          analogInput[id].filterPeriod = getValue("filterPeriod").toFloat();
+
+          xSemaphoreGive(jsonMutex);
+        }
+        saveToJson("/configAnalog.json", "analog");
+        saveToSDConfig("/configAnalog.json", "analog");
+        client.print("Analog Saved");
+      }
     }
 
-    // --- B. SAVE NETWORK ---
+    // --- 2. SAVE DIGITAL INPUT ---
+    else if (basePath == "/digital_IO" || getValue("inputPin").startsWith("DI"))
+    {
+      String targetPin = getValue("inputPin");
+      if (targetPin.startsWith("DI"))
+      {
+        int id = targetPin.substring(2).toInt();
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
+        {
+          digitalInput[id].name = getValue("nameDI");
+          digitalInput[id].taskMode = getValue("taskMode");
+          if (digitalInput[id].taskMode != getValue("taskMode")) digitalInput[id].value = 0;
+          digitalInput[id].inputState = (getValue("inputState") == "High") ? 1 : 0;
+          
+          if (isJson) digitalInput[id].inv = jsonBody.containsKey("inputInversion") && jsonBody["inputInversion"];
+          else digitalInput[id].inv = (postData.indexOf("inputInversion=") != -1);
+
+          digitalInput[id].intervalTime = (long)(getValue("intervalTime").toFloat() * 1000);
+          digitalInput[id].conversionFactor = getValue("conversionFactor").toFloat();
+          attachDigitalInputInterrupt(id);
+          xSemaphoreGive(jsonMutex);
+        }
+        saveToJson("/configDigital.json", "digital");
+        saveToSDConfig("/configDigital.json", "digital");
+        client.print("Digital Saved");
+      }
+    }
+
+    // --- 3. SAVE NETWORK ---
     else if (basePath == "/network" || getValue("networkMode") != "" || getValue("erpUrl") != "")
     {
       if (getValue("erpUrl") != "") {
@@ -1845,70 +1825,37 @@ void handleEthernetClient()
       client.print("Network Saved");
     }
 
-    // --- C. SAVE DIGITAL INPUT ---
-    else if (basePath == "/digital_IO" || getValue("inputPin").startsWith("DI"))
+    // --- 4. SAVE MODBUS SETUP ---
+    else if (basePath == "/modbus_setup")
     {
-      String targetPin = getValue("inputPin");
-      if (targetPin.startsWith("DI"))
-      {
-        int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
-        {
-          digitalInput[id].name = getValue("nameDI");
-          digitalInput[id].taskMode = getValue("taskMode");
-          digitalInput[id].inputState = (getValue("inputState") == "High") ? 1 : 0;
-          
-          if (isJson) digitalInput[id].inv = jsonBody.containsKey("inputInversion") && jsonBody["inputInversion"];
-          else digitalInput[id].inv = (postData.indexOf("inputInversion=") != -1);
-
-          digitalInput[id].intervalTime = (long)(getValue("intervalTime").toFloat() * 1000);
-          digitalInput[id].conversionFactor = getValue("conversionFactor").toFloat();
-          attachDigitalInputInterrupt(id);
-          xSemaphoreGive(jsonMutex);
-        }
-        saveToJson("/configDigital.json", "digital");
-        saveToSDConfig("/configDigital.json", "digital");
-        client.print("Digital Saved");
-      }
+       if (isJson) {
+          jsonParam = jsonBody; // Full copy JSON structure
+          modbusParam.baudrate = jsonParam["baudrate"];
+          modbusParam.parity = jsonParam["parity"].as<String>();
+          modbusParam.stopBit = jsonParam["stopBit"];
+          modbusParam.dataBit = jsonParam["dataBit"];
+          modbusParam.scanRate = jsonParam["scanRate"];
+       } else if (getValue("baudrate") != "") {
+          modbusParam.baudrate = getValue("baudrate").toInt();
+          modbusParam.parity = getValue("parity");
+          modbusParam.stopBit = getValue("stopBit").toInt();
+          modbusParam.dataBit = getValue("dataBit").toInt();
+          modbusParam.scanRate = getValue("scanRate").toFloat();
+          // Update global JSON
+          jsonParam["baudrate"] = modbusParam.baudrate;
+          jsonParam["parity"] = modbusParam.parity;
+          jsonParam["stopBit"] = modbusParam.stopBit;
+          jsonParam["dataBit"] = modbusParam.dataBit;
+          jsonParam["scanRate"] = modbusParam.scanRate;
+       }
+       stringParam = "";
+       serializeJson(jsonParam, stringParam);
+       saveToJson("/modbusSetup.json", "modbusSetup");
+       saveToSDConfig("/modbusSetup.json", "modbusSetup");
+       client.print("Modbus Saved");
     }
 
-    // --- D. SAVE ANALOG INPUT ---
-    else if (basePath == "/analog_input" || getValue("inputPin").startsWith("AI"))
-    {
-      String targetPin = getValue("inputPin");
-      if (targetPin.startsWith("AI"))
-      {
-        int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
-        {
-          analogInput[id].name = getValue("name");
-          analogInput[id].inputType = getValue("inputType");
-
-          if (isJson) {
-            analogInput[id].filter = jsonBody["filter"];
-            analogInput[id].scaling = jsonBody["scaling"];
-            analogInput[id].calibration = jsonBody["calibration"];
-          } else {
-            analogInput[id].filter = (postData.indexOf("filter=") != -1);
-            analogInput[id].scaling = (postData.indexOf("scaling=") != -1);
-            analogInput[id].calibration = (postData.indexOf("calibration=") != -1);
-          }
-
-          analogInput[id].lowLimit = getValue("lowLimit").toFloat();
-          analogInput[id].highLimit = getValue("highLimit").toFloat();
-          analogInput[id].mValue = getValue("mValue").toFloat();
-          analogInput[id].cValue = getValue("cValue").toFloat();
-          analogInput[id].filterPeriod = getValue("filterPeriod").toFloat();
-          
-          xSemaphoreGive(jsonMutex);
-        }
-        saveToJson("/configAnalog.json", "analog");
-        saveToSDConfig("/configAnalog.json", "analog");
-        client.print("Analog Saved");
-      }
-    }
-
-    // --- E. SAVE SYSTEM SETTINGS ---
+    // --- 5. SAVE SYSTEM SETTINGS ---
     else if (basePath == "/system_settings" || getValue("username") != "")
     {
       networkSettings.loginUsername = getValue("username");
@@ -1934,103 +1881,123 @@ void handleEthernetClient()
   }
 
   // ========================================================================
-  // GET HANDLING (LOAD DATA)
+  // B. GET HANDLING (LOAD DATA API) - FIXED REALTIME VALUE
   // ========================================================================
   else if (method == "GET")
   {
-    // [FIX 6] MUTEX TIMEOUT DINAIKKAN
-    if (basePath.endsWith("Load") || basePath.endsWith("Value") ||
+    // Jika Request adalah API Data
+    if (basePath.endsWith("Load") || basePath.endsWith("Value") || 
         basePath.endsWith("Status") || basePath == "/getTime")
     {
       client.println("HTTP/1.1 200 OK");
       client.println("Content-Type: application/json");
       client.println("Access-Control-Allow-Origin: *");
+      client.println("Cache-Control: no-store, no-cache, must-revalidate"); // [FIX] Anti Cache
       client.println("Connection: close");
       client.println();
 
-      if (basePath == "/getCurrentValue")
+      // --- 1. GET VALUE (MODBUS REALTIME) - [FIXED FORMAT ARRAY] ---
+      if (basePath == "/getValue") 
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100))) // [FIX] 100ms timeout
+         if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100))) 
+         {
+             DynamicJsonDocument docTemp(4096);
+             JsonArray arr = docTemp.to<JsonArray>();
+             JsonObject root = jsonSend.as<JsonObject>();
+             
+             // [SOLUSI] Ubah format Object menjadi Array of Objects
+             // Dari {"Suhu": "25"} Menjadi [{"KodeSensor": "Suhu", "Value": "25"}]
+             for (JsonPair kv : root)
+             {
+               if (String(kv.key().c_str()) == "-") continue;
+               JsonObject item = arr.createNestedObject();
+               item["KodeSensor"] = kv.key().c_str();
+               item["Value"] = kv.value().as<String>();
+             }
+             
+             String realtimeJson;
+             serializeJson(arr, realtimeJson); 
+             xSemaphoreGive(jsonMutex);
+             client.print(realtimeJson);
+         } 
+         else 
+         {
+             client.print("[]"); // Return array kosong jika sibuk
+         }
+      }
+
+      // --- 2. GET CURRENT VALUE (ANALOG/DIGITAL REALTIME) ---
+      else if (basePath == "/getCurrentValue") 
+      {
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100))) 
         {
-          DynamicJsonDocument docTemp(1024);
-          for (int i = 1; i <= jumlahInputAnalog; i++)
-          {
+          DynamicJsonDocument docTemp(2048);
+          // Analog Input
+          for (int i = 1; i <= jumlahInputAnalog; i++) {
             docTemp["rawValue" + String(i)] = analogInput[i].adcValue;
             docTemp["scaledValue" + String(i)] = analogInput[i].mapValue;
           }
-          for (int i = 1; i <= jumlahInputDigital; i++)
-          {
+          // Digital Input
+          for (int i = 1; i <= jumlahInputDigital; i++) {
             docTemp["diValue" + String(i)] = digitalInput[i].value;
           }
-          serializeJson(docTemp, client);
+          String dataLoad;
+          serializeJson(docTemp, dataLoad);
           xSemaphoreGive(jsonMutex);
-        }
-        else
+          client.print(dataLoad);
+        } 
+        else 
         {
           client.print("{}");
         }
       }
-      else if (basePath == "/getValue")
+      
+      // --- 3. HOME LOAD (DASHBOARD DATA) ---
+      else if (basePath == "/homeLoad") 
       {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
-        {
-          DynamicJsonDocument docTemp(4096);
-          JsonArray arr = docTemp.to<JsonArray>();
-          JsonObject root = jsonSend.as<JsonObject>();
-          for (JsonPair kv : root)
-          {
-            if (String(kv.key().c_str()) == "-")
-              continue;
-            JsonObject item = arr.createNestedObject();
-            item["KodeSensor"] = kv.key().c_str();
-            item["Value"] = kv.value().as<String>();
-          }
-          serializeJson(arr, client);
-          xSemaphoreGive(jsonMutex);
-        }
-        else
-        {
-          client.print("[]");
-        }
-      }
-      else if (basePath == "/networkLoad")
-      {
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200))) 
         {
           doc = DynamicJsonDocument(4096);
           doc["networkMode"] = networkSettings.networkMode;
           doc["ssid"] = networkSettings.ssid;
-          doc["ipAddress"] = networkSettings.ipAddress;
-          doc["dhcpMode"] = networkSettings.dhcpMode;
-          doc["subnet"] = networkSettings.subnetMask;
-          doc["ipGateway"] = networkSettings.ipGateway;
-          doc["ipDNS"] = networkSettings.ipDNS;
-          doc["protocolMode"] = networkSettings.protocolMode;
-          doc["endpoint"] = networkSettings.endpoint;
-          doc["port"] = networkSettings.port;
-          doc["pubTopic"] = networkSettings.pubTopic;
-          doc["subTopic"] = networkSettings.subTopic;
-          doc["mqttUsername"] = networkSettings.mqttUsername;
-          doc["mqttPass"] = networkSettings.mqttPassword;
-          doc["sendInterval"] = String(networkSettings.sendInterval, 2);
-          doc["erpUrl"] = networkSettings.erpUrl;
-          doc["erpUsername"] = networkSettings.erpUsername;
-          doc["erpPassword"] = networkSettings.erpPassword;
-          doc["modbusMode"] = modbusParam.mode;
-          doc["modbusPort"] = modbusParam.port;
-          doc["modbusSlaveID"] = modbusParam.slaveID;
-          serializeJson(doc, client);
+          doc["ipAddress"] = Ethernet.localIP().toString();
+          doc["connStatus"] = networkSettings.connStatus;
+          doc["jobNumber"] = jobNum;
+          doc["datetime"] = getTimeDateNow();
+
+          // Struktur Data Analog
+          JsonObject AI = doc.createNestedObject("AI");
+          JsonArray AIRawValue = AI.createNestedArray("rawValue");
+          JsonArray AIScaledValue = AI.createNestedArray("scaledValue");
+          JsonArray EnAI = AI.createNestedArray("enAI"); 
+
+          for (int i = 1; i <= jumlahInputAnalog; i++) {
+             AIRawValue.add(analogInput[i].adcValue);
+             AIScaledValue.add(analogInput[i].mapValue);
+             EnAI.add(analogInput[i].name != "" ? 1 : 0);
+          }
+
+          // Struktur Data Digital
+          JsonObject DI = doc.createNestedObject("DI");
+          JsonArray DIValue = DI.createNestedArray("value");
+          JsonArray DITaskMode = DI.createNestedArray("taskMode");
+          for (int i = 1; i <= jumlahInputDigital; i++) {
+             DIValue.add(digitalInput[i].value);
+             DITaskMode.add(digitalInput[i].taskMode);
+          }
+
+          String dataLoad;
+          serializeJson(doc, dataLoad);
           xSemaphoreGive(jsonMutex);
+          client.print(dataLoad);
         }
       }
-      else if (basePath == "/analogLoad")
-      {
-        int id = 1;
-        if (queryParams.indexOf("input=") >= 0)
-          id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
 
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
-        {
+      // --- 4. ANALOG LOAD (CONFIG) ---
+      else if (basePath == "/analogLoad") {
+        int id = 1;
+        if (queryParams.indexOf("input=") >= 0) id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
+        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200))) {
           doc = DynamicJsonDocument(2048);
           doc["name"] = analogInput[id].name;
           doc["inputType"] = analogInput[id].inputType;
@@ -2041,400 +2008,136 @@ void handleEthernetClient()
           doc["highLimit"] = analogInput[id].highLimit;
           doc["mValue"] = analogInput[id].mValue;
           doc["cValue"] = analogInput[id].cValue;
-          serializeJson(doc, client);
-          xSemaphoreGive(jsonMutex);
+          doc["calibration"] = analogInput[id].calibration;
+          String res; serializeJson(doc, res); xSemaphoreGive(jsonMutex); client.print(res);
         }
       }
-      else if (basePath == "/digitalLoad")
-      {
-        int id = 1;
-        if (queryParams.indexOf("input=") >= 0)
-          id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
 
-        if (queryParams.indexOf("reset=") >= 0)
-        {
-          int resetId = queryParams.substring(queryParams.indexOf("reset=") + 6).toInt();
-          if (resetId >= 1 && resetId <= jumlahInputDigital)
-          {
-            digitalInput[resetId].value = 0;
-            digitalInput[resetId].sumValue = 0;
-          }
-        }
-
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
-        {
+      // --- 5. DIGITAL LOAD (CONFIG) ---
+      else if (basePath == "/digitalLoad") {
+         if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200))) {
           doc = DynamicJsonDocument(2048);
-          doc["nameDI"] = digitalInput[id].name;
-          doc["invDI"] = digitalInput[id].inv;
-          doc["taskMode"] = digitalInput[id].taskMode;
-          doc["inputState"] = digitalInput[id].inputState ? "High" : "Low";
-          doc["intervalTime"] = (float)digitalInput[id].intervalTime / 1000;
-          doc["conversionFactor"] = digitalInput[id].conversionFactor;
-          serializeJson(doc, client);
-          xSemaphoreGive(jsonMutex);
+          if (queryParams.indexOf("input=") >= 0) {
+             int id = queryParams.substring(queryParams.indexOf("input=") + 6).toInt();
+             doc["nameDI"] = digitalInput[id].name;
+             doc["invDI"] = digitalInput[id].inv;
+             doc["taskMode"] = digitalInput[id].taskMode;
+             doc["inputState"] = digitalInput[id].inputState ? "High" : "Low";
+             doc["intervalTime"] = (float)digitalInput[id].intervalTime / 1000;
+             doc["conversionFactor"] = digitalInput[id].conversionFactor;
+          }
+          if (queryParams.indexOf("reset=") >= 0) {
+             int id = queryParams.substring(queryParams.indexOf("reset=") + 6).toInt();
+             digitalInput[id].value = 0;
+          }
+          String res; serializeJson(doc, res); xSemaphoreGive(jsonMutex); client.print(res);
         }
       }
-      else if (basePath == "/homeLoad")
-          {
-            if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200)))
-            {
-              doc = DynamicJsonDocument(4096);
-              
-              // 1. Info Umum
-              doc["networkMode"] = networkSettings.networkMode;
-              doc["ssid"] = networkSettings.ssid;
-              doc["ipAddress"] = Ethernet.localIP().toString();
-              doc["connStatus"] = networkSettings.connStatus;
-              doc["jobNumber"] = jobNum;
-              doc["datetime"] = getTimeDateNow();
 
-              // 2. PERBAIKAN DATA ANALOG INPUT (Kirim Format Lengkap)
-              // Kita buat struktur object "AI" dan array flat sekaligus agar kompatibel
-              
-              JsonObject AI = doc.createNestedObject("AI");
-              JsonArray AIRawValue = AI.createNestedArray("rawValue");
-              JsonArray AIScaledValue = AI.createNestedArray("scaledValue");
-              JsonArray EnAI_Nested = AI.createNestedArray("enAI"); // Status Enable dalam Object
-              
-              JsonArray FlatRaw = doc.createNestedArray("AI_Raw");   // Backup Format Lama
-              JsonArray FlatScale = doc.createNestedArray("AI_Scale"); // Backup Format Lama
-              JsonArray FlatEn = doc.createNestedArray("enAI");      // Enable di root (PENTING)
+      // --- 6. NETWORK LOAD ---
+      else if (basePath == "/networkLoad") {
+         if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(200))) {
+            doc = DynamicJsonDocument(4096);
+            doc["networkMode"] = networkSettings.networkMode;
+            doc["ssid"] = networkSettings.ssid;
+            doc["ipAddress"] = networkSettings.ipAddress;
+            doc["sendInterval"] = String(networkSettings.sendInterval, 2);
+            doc["dhcpMode"] = networkSettings.dhcpMode;
+            doc["subnet"] = networkSettings.subnetMask;
+            doc["ipGateway"] = networkSettings.ipGateway;
+            doc["ipDNS"] = networkSettings.ipDNS;
+            doc["protocolMode"] = networkSettings.protocolMode;
+            doc["endpoint"] = networkSettings.endpoint;
+            doc["port"] = networkSettings.port;
+            doc["pubTopic"] = networkSettings.pubTopic;
+            doc["subTopic"] = networkSettings.subTopic;
+            doc["mqttUsername"] = networkSettings.mqttUsername;
+            doc["mqttPass"] = networkSettings.mqttPassword;
+            doc["erpUrl"] = networkSettings.erpUrl;
+            doc["erpUsername"] = networkSettings.erpUsername;
+            doc["erpPassword"] = networkSettings.erpPassword;
+            doc["modbusMode"] = modbusParam.mode;
+            doc["modbusPort"] = modbusParam.port;
+            doc["modbusSlaveID"] = modbusParam.slaveID;
+            String res; serializeJson(doc, res); xSemaphoreGive(jsonMutex); client.print(res);
+        }
+      }
 
-              for (int i = 1; i <= jumlahInputAnalog; i++)
-              {
-                float val = analogInput[i].mapValue;
-                float raw = analogInput[i].adcValue;
-                // Jika nama sensor diisi, status = 1 (Tampil). Jika kosong = 0 (Sembunyi).
-                int isActive = (analogInput[i].name != "") ? 1 : 0; 
+      // --- 7. MODBUS LOAD ---
+      else if (basePath == "/modbusLoad") {
+        client.print(stringParam.length() > 0 ? stringParam : "{}");
+      }
 
-                // Isi ke Object AI
-                AIRawValue.add(raw);
-                AIScaledValue.add(val);
-                EnAI_Nested.add(isActive);
+      // --- 8. SETTINGS LOAD ---
+      else if (basePath == "/settingsLoad") {
+         String jsonAuth = "{";
+         jsonAuth += "\"username\":\"" + networkSettings.loginUsername + "\",";
+         jsonAuth += "\"password\":\"" + networkSettings.loginPassword + "\",";
+         jsonAuth += "\"sdInterval\":" + String(networkSettings.sdSaveInterval);
+         jsonAuth += "}";
+         client.print(jsonAuth);
+      }
 
-                // Isi ke Array Flat (Backup)
-                FlatRaw.add(raw);
-                FlatScale.add(val);
-                FlatEn.add(isActive); 
-              }
+      // --- 9. GET TIME ---
+      else if (basePath == "/getTime") {
+        client.printf("{\"datetime\":\"%s\"}", getTimeDateNow().c_str());
+      }
 
-              // 3. DATA DIGITAL INPUT (Tetap, tidak diubah)
-              JsonObject DI = doc.createNestedObject("DI");
-              JsonArray DIValue = DI.createNestedArray("value");
-              JsonArray DITaskMode = DI.createNestedArray("taskMode");
-              JsonArray DIName = DI.createNestedArray("name");
-
-              for (int i = 1; i <= jumlahInputDigital; i++)
-              {
-                DIValue.add(digitalInput[i].value);
-                DITaskMode.add(digitalInput[i].taskMode);
-                DIName.add(digitalInput[i].name);
-              }
-
-              serializeJson(doc, client);
-              xSemaphoreGive(jsonMutex);
-            }
-          }
-      else if (basePath == "/ethernetStatus" || basePath == "/wifiStatus")
-      {
+      // --- 10. STATUS ---
+      else if (basePath == "/wifiStatus" || basePath == "/ethernetStatus") {
         DynamicJsonDocument stat(512);
         stat["mode"] = networkSettings.networkMode;
         stat["ip"] = Ethernet.localIP().toString();
         stat["connected"] = (Ethernet.linkStatus() == LinkON);
         stat["connectionStatus"] = networkSettings.connStatus;
-        serializeJson(stat, client);
-      }
-      else if (basePath == "/modbusLoad")
-      {
-        client.print(stringParam.length() > 0 ? stringParam : "{}");
-      }
-      else if (basePath == "/settingsLoad")
-      {
-        client.printf("{\"username\":\"%s\",\"password\":\"%s\",\"sdInterval\":%d}",
-                      networkSettings.loginUsername.c_str(),
-                      networkSettings.loginPassword.c_str(),
-                      networkSettings.sdSaveInterval);
-      }
-      else if (basePath == "/getTime")
-      {
-        client.printf("{\"datetime\":\"%s\"}", getTimeDateNow().c_str());
-      }
-      else
-      {
-        client.print("{}");
+        String res; serializeJson(stat, res); client.print(res);
       }
     }
-
-    // === STATIC FILES (HTML/JS/CSS) ===
+    // ========================================================================
+    // C. STATIC FILE HANDLER (HTML/CSS/JS)
+    // ========================================================================
     else
     {
       String filePath = basePath;
-      if (basePath == "/" || basePath == "/home")
-        filePath = "/home.html";
-      else if (basePath == "/network")
-        filePath = "/network.html";
-      else if (basePath == "/analog_input")
-        filePath = "/analog_input.html";
-      else if (basePath == "/digital_IO")
-        filePath = "/digital_IO.html";
-      else if (basePath == "/system_settings")
-        filePath = "/system_settings.html";
-      else if (basePath == "/modbus_setup")
-        filePath = "/modbus_setup.html";
-      else if (basePath == "/updateOTA")
-        filePath = "/UpdateOTA.html";
-      else if (basePath == "/debug")
-        filePath = "/debug-monitor.html";
+      if (basePath == "/" || basePath == "/home") filePath = "/home.html";
+      else if (basePath == "/network") filePath = "/network.html";
+      else if (basePath == "/analog_input") filePath = "/analog_input.html";
+      else if (basePath == "/digital_IO") filePath = "/digital_IO.html";
+      else if (basePath == "/system_settings") filePath = "/system_settings.html";
+      else if (basePath == "/modbus_setup") filePath = "/modbus_setup.html";
+      else if (basePath == "/updateOTA") filePath = "/UpdateOTA.html";
+      else if (basePath == "/debug") filePath = "/debug-monitor.html";
 
-bool fileFound = SPIFFS.exists(filePath);
-      bool gzipFound = false;
-
-      if (!fileFound) {
-        if (SPIFFS.exists(filePath + ".gz")) {
-          filePath += ".gz";
-          fileFound = true;
-          gzipFound = true;
-        }
-      }
-
-      if (fileFound)
-      {
+      if (SPIFFS.exists(filePath)) {
         File file = SPIFFS.open(filePath, "r");
-        
-        // Tentukan Content-Type berdasarkan nama ASLI (buang .gz untuk pengecekan)
-        String mimePath = filePath;
-        if (mimePath.endsWith(".gz")) mimePath = mimePath.substring(0, mimePath.length() - 3);
-        String contentType = getContentType(mimePath);
+        String contentType = getContentType(filePath);
 
         client.println("HTTP/1.1 200 OK");
         client.println("Content-Type: " + contentType);
-        client.println("Access-Control-Allow-Origin: *");
-        
-        // [FIX] Beritahu browser jika file terkompresi
-        if (gzipFound) {
-          client.println("Content-Encoding: gzip");
+        if (filePath.endsWith(".css") || filePath.endsWith(".js") || filePath.endsWith(".png")) {
+           client.println("Cache-Control: public, max-age=31536000");
         }
-
-        // Cache Control
-        if (mimePath.endsWith(".css") || mimePath.endsWith(".js") || mimePath.endsWith(".png")) {
-          client.println("Cache-Control: public, max-age=31536000");
-        } else {
-          client.println("Cache-Control: no-cache, no-store, must-revalidate");
-        }
-
-        client.print("Content-Length: ");
-        client.println(file.size());
         client.println("Connection: close");
         client.println();
 
-        // Kirim File (Buffer 512 byte cukup aman)
         uint8_t buffer[512];
-        while (file.available())
-        {
+        while (file.available()) {
           int bytesRead = file.read(buffer, sizeof(buffer));
           client.write(buffer, bytesRead);
         }
         file.close();
-      }
-      else
-      {
+      } else {
         client.println("HTTP/1.1 404 Not Found");
         client.println("Connection: close");
         client.println();
-        Serial.print("File Not Found: "); Serial.println(filePath);
       }
     }
   }
-// ========================================================================
-  // POST HANDLING (SAVE CONFIGURATION)
-  // ========================================================================
-  else if (method == "POST")
-  {
-    // Helper Lambda untuk mengambil value dari postData (x-www-form-urlencoded)
-    auto getValue = [&](String key) -> String {
-      return getPostValue(postData, key);
-    };
 
-    client.println("HTTP/1.1 200 OK");
-    client.println("Access-Control-Allow-Origin: *");
-    client.println("Content-Type: text/plain");
-    client.println("Connection: close");
-    client.println();
-
-    // --------------------------------------------------------
-    // 1. SAVE NETWORK
-    // --------------------------------------------------------
-    if (basePath == "/network" || getValue("networkMode") != "")
-    {
-      if (getValue("erpUrl") != "") {
-        // Save ERP Config
-        networkSettings.erpUrl = getValue("erpUrl");
-        networkSettings.erpUsername = getValue("erpUsername");
-        networkSettings.erpPassword = getValue("erpPassword");
-      } else {
-        // Save Network Config
-        networkSettings.networkMode = getValue("networkMode");
-        networkSettings.dhcpMode = getValue("dhcpMode");
-        networkSettings.ssid = getValue("ssid");
-        networkSettings.password = getValue("password");
-        networkSettings.apSsid = getValue("apSsid");
-        networkSettings.apPassword = getValue("apPassword");
-        networkSettings.ipAddress = getValue("ipAddress");
-        networkSettings.subnetMask = getValue("subnet");
-        networkSettings.ipGateway = getValue("ipGateway");
-        networkSettings.ipDNS = getValue("ipDNS");
-        networkSettings.protocolMode = getValue("protocolMode");
-        networkSettings.endpoint = getValue("endpoint");
-        networkSettings.port = getValue("port").toInt();
-        networkSettings.sendInterval = getValue("sendInterval").toFloat();
-        networkSettings.sendTrig = getValue("sendTrig");
-        networkSettings.mqttUsername = getValue("mqttUsername");
-        networkSettings.mqttPassword = getValue("mqttPass");
-        networkSettings.pubTopic = getValue("pubTopic");
-        networkSettings.subTopic = getValue("subTopic");
-        
-        if(getValue("modbusMode") != "") {
-             networkSettings.protocolMode2 = getValue("protocolMode2");
-             modbusParam.port = getValue("modbusPort").toInt();
-             modbusParam.slaveID = getValue("slaveID").toInt();
-        }
-        configureSendTriggerInterrupt(networkSettings);
-      }
-      
-      saveToJson("/configNetwork.json", "network");
-      saveToSDConfig("/configNetwork.json", "network");
-      client.print("Network Saved");
-    }
-
-    // --------------------------------------------------------
-    // 2. SAVE DIGITAL INPUT
-    // --------------------------------------------------------
-    else if (basePath == "/digital_IO" || getValue("inputPin").startsWith("DI"))
-    {
-      String targetPin = getValue("inputPin");
-      if (targetPin.startsWith("DI"))
-      {
-        int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
-        {
-          digitalInput[id].name = getValue("nameDI");
-          digitalInput[id].taskMode = getValue("taskMode");
-          
-          // Reset value jika mode berubah
-          // if (digitalInput[id].taskMode != getValue("taskMode")) digitalInput[i].value = 0; 
-
-          digitalInput[id].inputState = (getValue("inputState") == "High") ? 1 : 0;
-          
-          // Cek keberadaan parameter invers (checkbox biasanya tidak kirim value jika unchecked)
-          digitalInput[id].inv = (postData.indexOf("inputInversion=") != -1) ? 1 : 0;
-
-          digitalInput[id].intervalTime = (long)(getValue("intervalTime").toFloat() * 1000);
-          digitalInput[id].conversionFactor = getValue("conversionFactor").toFloat();
-          
-          attachDigitalInputInterrupt(id);
-          xSemaphoreGive(jsonMutex);
-        }
-        saveToJson("/configDigital.json", "digital");
-        saveToSDConfig("/configDigital.json", "digital");
-        client.print("Digital Saved");
-      }
-    }
-
-    // --------------------------------------------------------
-    // 3. SAVE ANALOG INPUT (INI YANG ANDA CARI)
-    // --------------------------------------------------------
-    else if (basePath == "/analog_input" || getValue("inputPin").startsWith("AI"))
-    {
-      String targetPin = getValue("inputPin");
-      if (targetPin.startsWith("AI"))
-      {
-        int id = targetPin.substring(2).toInt();
-        if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(500)))
-        {
-          analogInput[id].name = getValue("name");
-          analogInput[id].inputType = getValue("inputType");
-          
-          // Checkbox logic (search in raw postData)
-          analogInput[id].filter = (postData.indexOf("filter=") != -1) ? 1 : 0;
-          analogInput[id].scaling = (postData.indexOf("scaling=") != -1) ? 1 : 0;
-          analogInput[id].calibration = (postData.indexOf("calibration=") != -1) ? 1 : 0;
-
-          analogInput[id].lowLimit = getValue("lowLimit").toFloat();
-          analogInput[id].highLimit = getValue("highLimit").toFloat();
-          analogInput[id].mValue = getValue("mValue").toFloat();
-          analogInput[id].cValue = getValue("cValue").toFloat();
-          analogInput[id].filterPeriod = getValue("filterPeriod").toFloat();
-          
-          xSemaphoreGive(jsonMutex);
-        }
-        saveToJson("/configAnalog.json", "analog");
-        saveToSDConfig("/configAnalog.json", "analog");
-        client.print("Analog Saved");
-      }
-    }
-
-    // --------------------------------------------------------
-    // 4. SAVE SYSTEM SETTINGS
-    // --------------------------------------------------------
-    else if (basePath == "/system_settings" || getValue("username") != "")
-    {
-      networkSettings.loginUsername = getValue("username");
-      networkSettings.loginPassword = getValue("password");
-      networkSettings.sdSaveInterval = getValue("sdInterval").toInt();
-
-      String dt = getValue("datetime");
-      if (dt.length() >= 16)
-      {
-        int yy = dt.substring(0, 4).toInt();
-        int mm = dt.substring(5, 7).toInt();
-        int dd = dt.substring(8, 10).toInt();
-        int hh = dt.substring(11, 13).toInt();
-        int mn = dt.substring(14, 16).toInt();
-        rtc.adjust(DateTime(yy, mm, dd, hh, mn, 0));
-      }
-
-      saveToJson("/systemSettings.json", "systemSettings");
-      saveToSDConfig("/systemSettings.json", "systemSettings");
-      client.print("Settings Saved");
-    }
-
-    // --------------------------------------------------------
-    // 5. SAVE MODBUS SETUP
-    // --------------------------------------------------------
-    else if (basePath == "/modbus_setup" || getValue("baudrate") != "")
-    {
-        modbusParam.baudrate = getValue("baudrate").toInt();
-        modbusParam.parity = getValue("parity");
-        modbusParam.stopBit = getValue("stopBit").toInt();
-        modbusParam.dataBit = getValue("dataBit").toInt();
-        modbusParam.scanRate = getValue("scanRate").toFloat();
-        
-        // Update global JSON agar sinkron
-        jsonParam["baudrate"] = modbusParam.baudrate;
-        jsonParam["parity"] = modbusParam.parity;
-        jsonParam["stopBit"] = modbusParam.stopBit;
-        jsonParam["dataBit"] = modbusParam.dataBit;
-        jsonParam["scanRate"] = modbusParam.scanRate;
-        
-        stringParam = "";
-        serializeJson(jsonParam, stringParam);
-
-        saveToJson("/modbusSetup.json", "modbusSetup");
-        saveToSDConfig("/modbusSetup.json", "modbusSetup");
-        client.print("Modbus Saved");
-    }
-    else 
-    {
-        client.print("OK");
-    }
-  }
-  // [FIX 9] PASTIKAN CLIENT CLOSE SEMPURNA
-  // vTaskDelay(1);
   client.flush();
   vTaskDelay(pdMS_TO_TICKS(10));
   client.stop();
 }
-
 // ============================================================================
 // CORE 0 TASK: Network Management (FIXED VERSION - ANTI REBOOT)
 // ============================================================================
@@ -2628,82 +2331,119 @@ void Task_DataAcquisition(void *parameter)
     //   }
     //   lastReadAnalog = millis();
     // }
-if (millis() - lastReadAnalog >= 100)
+    if (millis() - lastReadAnalog >= 100)
     {
-      // Pastikan Mutex I2C aman
       if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)))
       {
+        float inMax = 26666.67;
+
         for (byte i = 1; i <= jumlahInputAnalog; i++)
         {
-          // 1. BACA DATA MENTAH DARI CHIP
+          // 1. BACA DATA MENTAH
           int16_t valueADC = ads.readADC(i - 1);
 
-          // 2. FILTER SINYAL (Cegah Stuck/Inf)
-          if (isnan(analogInput[i].adcValue) || isinf(analogInput[i].adcValue)) {
-             analogInput[i].adcValue = valueADC; // Reset jika error
+          // [TAMBAHAN] Safety bounds check
+          if (valueADC < 0)
+            valueADC = 0;
+          if (valueADC > 26667)
+            valueADC = 26667; // Max range ADS1115
+
+          // 2. FILTER
+          if (isnan(analogInput[i].adcValue) || isinf(analogInput[i].adcValue) ||
+              analogInput[i].adcValue > 30000 || analogInput[i].adcValue < 0)
+          {
+            analogInput[i].adcValue = valueADC; // Reset jika error
           }
 
-          if (analogInput[i].filter) {
-            // Gunakan fungsi filter yang aman
+          if (analogInput[i].filter)
+          {
             analogInput[i].adcValue = filterSensor(valueADC, analogInput[i].adcValue, analogInput[i].filterPeriod);
-          } else {
+          }
+          else
+          {
             analogInput[i].adcValue = valueADC;
           }
 
-          // 3. HITUNG ARUS MENTAH (mA)
-          // Asumsi hardware standar: Resistor 250 Ohm -> inMax = 26666.67
-          float inMax = 26666.67;
-          float currentMA = (analogInput[i].adcValue / inMax) * 20.0;
+          // [TAMBAHAN] Clamp hasil filter (PENTING!)
+          if (analogInput[i].adcValue > 26667)
+            analogInput[i].adcValue = 26667;
+          if (analogInput[i].adcValue < 0)
+            analogInput[i].adcValue = 0;
 
-          // ==================================================================
-          // [BARU] 4. TERAPKAN KALIBRASI (y = mx + c) <-- INI YANG HILANG!
-          // ==================================================================
-          // Bagian ini wajib ada agar angka m dan c dari web berfungsi.
-          if (analogInput[i].calibration) {
-             // Rumus: mA_Baru = (mA_Lama * Gradient) + Constant
-             currentMA = (currentMA * analogInput[i].mValue) + analogInput[i].cValue;
+          float rawADC = analogInput[i].adcValue;
+          // 3. KONVERSI ADC → mA/V (TANPA KALIBRASI DULU)
+          float currentMA;
+
+          if (analogInput[i].inputType == "4-20 mA")
+          {
+            currentMA = (rawADC / inMax) * 20.0;
           }
-          // ==================================================================
+          else if (analogInput[i].inputType == "0-20 mA")
+          {
+            currentMA = (rawADC / inMax) * 20.0;
+          }
+          else if (analogInput[i].inputType == "0-10 V")
+          {
+            currentMA = (rawADC / inMax) * 10.0;
+          }
+          else
+          {
+            currentMA = (rawADC / inMax) * 20.0;
+          }
 
-          // (Opsional) Update nilai ADC di struct biar tampilan 'Raw Value' di Web ikut terkoreksi
-          analogInput[i].adcValue = (currentMA / 20.0) * inMax;
+          // 4. TERAPKAN KALIBRASI (HANYA KE mA, BUKAN ADC!)
+          if (analogInput[i].calibration)
+          {
+            currentMA = (currentMA * analogInput[i].mValue) + analogInput[i].cValue;
+          }
 
-          // 5. SCALING KE SATUAN ENGINEERING (Suhu, Tekanan, dll)
-          if (analogInput[i].scaling) 
+          // 5. SCALING KE SATUAN ENGINEERING
+          if (analogInput[i].scaling)
           {
             float low = analogInput[i].lowLimit;
             float high = analogInput[i].highLimit;
             float range = high - low;
 
-            if (analogInput[i].inputType == "4-20 mA") {
-              if (range != 0) {
-                 analogInput[i].mapValue = ((currentMA - 4.0) * range / 16.0) + low;
-              } else {
-                 analogInput[i].mapValue = 0;
+            if (analogInput[i].inputType == "4-20 mA")
+            {
+              if (range != 0)
+              {
+                float effCurrent = (currentMA < 4.0) ? 4.0 : currentMA;
+                analogInput[i].mapValue = ((currentMA - 4.0) * range / 16.0) + low;
               }
-              // Batas bawah (biar ga minus aneh-aneh kalau sensor lepas)
-              if (currentMA < 3.0) analogInput[i].mapValue = low;
-            } 
-            else if (analogInput[i].inputType == "0-20 mA") {
+              else
+              {
+                analogInput[i].mapValue = 0;
+              }
+              // Safety: Jika sensor lepas (< 3mA), set ke batas bawah
+              if (currentMA < 3.0)
+                analogInput[i].mapValue = low;
+            }
+            else if (analogInput[i].inputType == "0-20 mA")
+            {
               analogInput[i].mapValue = (currentMA / 20.0 * range) + low;
             }
-            else {
-              // 0-10V atau lainnya
-              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0, inMax, low, high);
+            else if (analogInput[i].inputType == "0-10 V")
+            {
+              analogInput[i].mapValue = (currentMA / 10.0 * range) + low;
             }
-          } 
-          else 
+            else
+            {
+              analogInput[i].mapValue = mapFloat(rawADC, 0, inMax, low, high);
+            }
+          }
+          else
           {
-            // Jika scaling mati, tampilkan Arus (mA)
+            // Jika scaling OFF, tampilkan mA/V mentah
             analogInput[i].mapValue = currentMA;
           }
 
-          // Simpan Data
+          // 6. SIMPAN DATA (ADC TETAP ASLI, TIDAK DIUBAH!)
           sensorData.analogValues[i] = analogInput[i].mapValue;
-          
-          // Update Modbus
-          mbIP.Ireg(i + 9, (int)analogInput[i].adcValue);
-          mbIP.Ireg(i - 1, (int)(analogInput[i].mapValue * 100));
+
+          // 7. UPDATE MODBUS (Gunakan ADC asli dan hasil scaled)
+          mbIP.Ireg(i + 9, (int)rawADC);                          // RAW ADC
+          mbIP.Ireg(i - 1, (int)(analogInput[i].mapValue * 100)); // Scaled value
         }
         xSemaphoreGive(i2cMutex);
       }
@@ -2790,14 +2530,27 @@ if (millis() - lastReadAnalog >= 100)
     xQueueSend(queueSensorData, &sensorData, 0);
 
     // ------------------------------------------------------------------------
-    // D. DEBUG MONITOR (Setiap 2 Detik)
+    // D. DEBUG MONITOR
     // ------------------------------------------------------------------------
     if (millis() - lastDebugPrint >= 2000)
     {
       Serial.println("\n--- [ ANALOG INPUT ] ---");
       for (int i = 1; i <= jumlahInputAnalog; i++)
       {
-        // Menggunakan String() biasa lebih aman daripada printf float kompleks jika stack terbatas
+        float displayMA;
+        if (analogInput[i].inputType.indexOf("mA") >= 0)
+        {
+          // Jika mA, hitung pakai rumus Shunt Resistor (250 Ohm -> 20mA = 5V)
+          // ADC 26666 = 5V = 20mA
+          displayMA = (analogInput[i].adcValue / 26666.67) * 20.0;
+        }
+        else
+        {
+          // Jika bukan mA (berarti 0-10 V atau 0-5 V)
+          // ADC 26666 = 5V. Jika input 0-10V menggunakan voltage divider (misal 2:1), sesuaikan pengali ini.
+          // Default asumsi input langsung:
+          displayMA = (analogInput[i].adcValue / 26666.67) * 10.0;
+        } // Menggunakan String() biasa lebih aman daripada printf float kompleks jika stack terbatas
         Serial.print("AI-");
         Serial.print(i);
         Serial.print(" | Val: ");
@@ -2806,8 +2559,18 @@ if (millis() - lastReadAnalog >= 100)
         Serial.print(analogInput[i].adcValue);
         Serial.print(" | Type: ");
         Serial.println(analogInput[i].inputType);
-        Serial.print(" | mA: ");
-        Serial.println(analogInput[i].adcValue / 65535.0 * 20.0, 2);
+        // Serial.print(" | mA: ");
+        // // Serial.println(analogInput[i].adcValue / 65535.0 * 20.0, 2);
+        // Serial.println(displayMA, 2);
+        if (analogInput[i].inputType.indexOf("mA") >= 0)
+        {
+          Serial.print(" | mA: ");
+        }
+        else
+        {
+          Serial.print(" | V : "); // Ubah label jadi V
+        }
+        Serial.println(displayMA, 2);
       }
       Serial.println("\n=== DIGITAL INPUT STATUS ===");
       for (int i = 1; i <= jumlahInputDigital; i++)
@@ -4084,11 +3847,23 @@ void modbusSlaveSetup()
 // ============================================================================
 float filterSensor(float filterVar, float filterResult_1, float fc)
 {
-  float Ts, RC, a, filterResult;
-  Ts = 0.01;
-  RC = 1 / (2 * 3.14 * fc);
-  a = RC / 0.01;
-  filterResult = (filterVar + a * filterResult_1) / (a + 1);
+  // Safety check: Jika fc terlalu kecil, skip filter
+  if (fc < 0.01)
+    return filterVar;
+
+  float Ts = 0.1; // Sampling time (sesuai loop 100ms)
+  float RC = 1.0 / (2.0 * 3.14159 * fc);
+  float alpha = Ts / (RC + Ts); // Normalized (0-1)
+
+  // Low-pass filter: Y = alpha*X + (1-alpha)*Y_prev
+  float filterResult = (alpha * filterVar) + ((1.0 - alpha) * filterResult_1);
+
+  // Safety: Jika hasil tidak masuk akal, return raw value
+  if (isnan(filterResult) || isinf(filterResult) || filterResult > 30000 || filterResult < -1000)
+  {
+    return filterVar;
+  }
+
   return filterResult;
 }
 unsigned int readModbusNonBlocking(unsigned int modbusAddress, unsigned int funCode, unsigned int regAddress, unsigned int timeoutMs)
@@ -5056,15 +4831,15 @@ void handleFormSubmit(AsyncWebServerRequest *request)
       if (request->arg("inputPin") == ("AI" + String(i)))
       {
         analogInput[i].name = request->arg("name");
+        analogInput[i].inputType = request->arg("inputType");
         analogInput[i].filter = request->hasArg("filter") ? 1 : 0;
         analogInput[i].scaling = request->hasArg("scaling") ? 1 : 0;
-        analogInput[i].calibration = request->arg("calibration") ? 1 : 0;
-        analogInput[i].mValue = request->arg("mValue").toFloat();
-        analogInput[i].cValue = request->arg("cValue").toFloat();
+        analogInput[i].calibration = request->hasArg("calibration") ? 1 : 0;
         analogInput[i].filterPeriod = request->arg("filterPeriod").toFloat();
         analogInput[i].lowLimit = request->arg("lowLimit").toFloat();
         analogInput[i].highLimit = request->arg("highLimit").toFloat();
-        analogInput[i].inputType = request->arg("inputType");
+        analogInput[i].mValue = request->arg("mValue").toFloat();
+        analogInput[i].cValue = request->arg("cValue").toFloat();
       }
     }
     request->send(200, "text/plain", "Form data received");
