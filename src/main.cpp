@@ -73,6 +73,7 @@ ErrorMessages errorMessages("/debugStream");
 
 String stringParam, sendString;
 int numOfParam, modbusCount;
+bool flagSend = false;
 unsigned long printTime, checkTime, sendTime, sendTimeModbus;
 HardwareSerial SerialModbus(2);
 
@@ -2389,7 +2390,7 @@ void Task_DataAcquisition(void *parameter)
   unsigned long lastReadDigital = 0;
   unsigned long lastRunTimeCheck = 0;
   unsigned long lastDebugPrint = 0;
-
+  int16_t valueADC;
   while (true)
   {
     // --- Definisi variabel Modbus (digunakan di Analog & Digital) ---
@@ -2403,102 +2404,55 @@ void Task_DataAcquisition(void *parameter)
     {
       if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)))
       {
-        for (byte i = 1; i <= jumlahInputAnalog; i++)
+        // --- [ MULAI KODE BARU DARI ANDA ] ---
+        for (byte i = 1; i < jumlahInputAnalog + 1; i++)
         {
-          // 1. BACA RAW ADC
-          int16_t rawADC = ads.readADC(i - 1);
-          if (rawADC < 0)
-            rawADC = 0;
-          if (rawADC > 32767)
-            rawADC = 32767;
+          valueADC = ads.readADC(i - 1);
 
-          // 2. FILTERING
-          if (rawADC < 100)
-          {
-            analogInput[i].adcValue = rawADC;
-          }
-          else if (analogInput[i].filter)
-          {
-            analogInput[i].adcValue = filterSensor(rawADC, analogInput[i].adcValue, analogInput[i].filterPeriod);
-          }
+          // Filter Logic
+          if (analogInput[i].filter)
+            analogInput[i].adcValue = filterSensor(valueADC, analogInput[i].adcValue, analogInput[i].filterPeriod);
           else
-          {
-            analogInput[i].adcValue = rawADC;
-          }
+            analogInput[i].adcValue = valueADC;
 
-          // Safety clamp
-          if (analogInput[i].adcValue > 32767)
-            analogInput[i].adcValue = 32767;
-          if (analogInput[i].adcValue < 0)
-            analogInput[i].adcValue = 0;
-
-          // 3. MAPPING ADC → ENGINEERING VALUE
+          // Mapping Logic (Sesuai Request)
           if (analogInput[i].inputType == "4-20 mA")
           {
             if (analogInput[i].scaling)
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  5333.33, 26666.67,
-                  analogInput[i].lowLimit, analogInput[i].highLimit);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 5333.33, 26666.67, analogInput[i].lowLimit, analogInput[i].highLimit);
             else
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  5333.33, 26666.67,
-                  4.0, 20.0);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 5333.33, 26666.67, 4.0, 20.0); // 4mA=1V (5333), 20mA=5V (26666)
           }
           else if (analogInput[i].inputType == "0-20 mA")
           {
             if (analogInput[i].scaling)
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  0.0, 26666.67,
-                  analogInput[i].lowLimit, analogInput[i].highLimit);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0.0, 26666.67, analogInput[i].lowLimit, analogInput[i].highLimit);
             else
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  0.0, 26666.67,
-                  0.0, 20.0);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0.0, 26666.67, 0.0, 20.0);
           }
-          else // 0-10V atau lainnya
+          else
           {
             if (analogInput[i].scaling)
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  0.0, 26666.67,
-                  analogInput[i].lowLimit, analogInput[i].highLimit);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0.0, 26666.67, analogInput[i].lowLimit, analogInput[i].highLimit);
             else
-            {
-              analogInput[i].mapValue = mapFloat(
-                  analogInput[i].adcValue,
-                  0.0, 26666.67,
-                  0.0, 10.0);
-            }
+              analogInput[i].mapValue = mapFloat(analogInput[i].adcValue, 0.0, 26666.67, 0.0, 10.0);
           }
 
-          // 4. KALIBRASI (jika aktif)
+          // Kalibrasi Linear (mX + c) jika aktif
           if (analogInput[i].calibration && analogInput[i].scaling)
           {
             float slope = (analogInput[i].mValue != 0) ? analogInput[i].mValue : 1.0;
             analogInput[i].mapValue = (analogInput[i].mapValue * slope) + analogInput[i].cValue;
           }
 
-          // 5. SIMPAN & UPDATE MODBUS
+          // Masukkan ke struct data untuk dikirim ke Task Logger
           sensorData.analogValues[i] = analogInput[i].mapValue;
 
+          // Update Register Modbus Slave (Agar bisa dibaca PLC/SCADA lain)
           if (useTCP)
           {
-            mbIP.Ireg(i + 9, (int)analogInput[i].adcValue);
-            mbIP.Ireg(i - 1, (int)(analogInput[i].mapValue * 100));
+            mbIP.Ireg(i + 9, (int)analogInput[i].adcValue);         // Register Raw
+            mbIP.Ireg(i - 1, (int)(analogInput[i].mapValue * 100)); // Register Value
           }
           if (useRTU)
           {
@@ -2516,7 +2470,25 @@ void Task_DataAcquisition(void *parameter)
     {
       for (byte i = 1; i < jumlahInputDigital + 1; i++)
       {
-        // LOGIC PENGOLAHAN TASK MODE
+        int pinTrig = 0;
+
+        // 1. Data Logger Trigger Logic
+        if (networkSettings.sendTrig != "Timer/interval") // Koreksi typo: biasanya "Timer/interval"
+        {
+          // Parsing trig (misal "DI1" -> ambil angka 1)
+          if (networkSettings.sendTrig.length() >= 3)
+          {
+            pinTrig = (networkSettings.sendTrig.substring(2, 3)).toInt();
+          }
+        }
+
+        // Jika Digital Input ini adalah Trigger, dan baru saja ON (Flag Interrupt)
+        if (digitalInput[i].flagInt and i == pinTrig)
+        {
+          flagSend = true; // Trigger pengiriman data
+        }
+
+        // 2. Processing Berdasarkan Task Mode
         if (digitalInput[i].taskMode == "Cycle Time")
         {
           if (digitalInput[i].flagInt)
@@ -2534,6 +2506,21 @@ void Task_DataAcquisition(void *parameter)
             digitalInput[i].flagInt = 0;
           }
         }
+        else if (digitalInput[i].taskMode == "Run Time")
+        {
+          // Menggunakan variable global timeElapsed
+          if (millis() - timeElapsed >= 60000)
+          {
+            if (digitalRead(digitalInput[i].pin) == digitalInput[i].inputState)
+            {
+              digitalInput[i].value++;
+              updateJson("/runtimeData.json", String(i).c_str(), digitalInput[i].value);
+            }
+            // Reset timer dilakukan di akhir loop atau dikontrol global,
+            // disini kita update timeElapsed agar siklus berulang.
+            timeElapsed = millis();
+          }
+        }
         else if (digitalInput[i].taskMode == "Pulse Mode")
         {
           if (millis() - digitalInput[i].lastMillisPulseMode > digitalInput[i].intervalTime)
@@ -2545,12 +2532,15 @@ void Task_DataAcquisition(void *parameter)
         }
         else
         {
-          // Default: Normal Input (Status High/Low)
+          // Normal Mode (High/Low) + Inversion Check
           int raw = digitalRead(digitalInput[i].pin);
           digitalInput[i].value = digitalInput[i].inv ? !raw : raw;
         }
+
+        // 3. Simpan ke SensorData & JSON Live Update
         sensorData.digitalValues[i] = digitalInput[i].value;
-        mbIP.Ireg(i + 19, digitalInput[i].value);
+
+        // Update JSON Send (untuk Web Live View)
         if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(10)))
         {
           if (digitalInput[i].name != "")
@@ -2560,28 +2550,18 @@ void Task_DataAcquisition(void *parameter)
           }
           xSemaphoreGive(jsonMutex);
         }
-      }
-      lastReadDigital = millis();
-    }
 
-    // ------------------------------------------------------------------------
-    // C. RUNTIME CHECK (Setiap 60 Detik)
-    // ------------------------------------------------------------------------
-    if (millis() - lastRunTimeCheck >= 60000)
-    {
-      for (byte i = 1; i < jumlahInputDigital + 1; i++)
-      {
-        if (digitalInput[i].taskMode == "Run Time")
+        // 4. Modbus Write (TCP & RTU) - Sesuai Request Anda
+        if (useTCP)
         {
-          if (digitalRead(digitalInput[i].pin) == digitalInput[i].inputState)
-          {
-            digitalInput[i].value++;
-            // Simpan ke file JSON runtime (agar tidak hilang saat restart)
-            updateJson("/runtimeData.json", String(i).c_str(), digitalInput[i].value);
-          }
+          mbIP.Ireg(i + 19, digitalInput[i].value); // Register 20-23
+        }
+        if (useRTU)
+        {
+          mbRTU.Ireg(i + 19, digitalInput[i].value); // Register 20-23
         }
       }
-      lastRunTimeCheck = millis();
+      lastReadDigital = millis();
     }
 
     // Kirim Data ke Queue
@@ -5297,6 +5277,4 @@ void printConfigurationDetails()
   {
     Serial.println("   (Modbus Config Empty)");
   }
-
-  Serial.println("==================================================\n");
 }
