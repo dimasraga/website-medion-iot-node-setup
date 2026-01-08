@@ -1941,18 +1941,17 @@ void handleEthernetClient()
   // ========================================================================
   else if (method == "GET")
   {
-    // Jika Request adalah API Data
     if (basePath.endsWith("Load") || basePath.endsWith("Value") ||
         basePath.endsWith("Status") || basePath == "/getTime")
     {
       client.println("HTTP/1.1 200 OK");
       client.println("Content-Type: application/json");
       client.println("Access-Control-Allow-Origin: *");
-      client.println("Cache-Control: no-store, no-cache, must-revalidate"); // [FIX] Anti Cache
+      client.println("Cache-Control: no-store, no-cache, must-revalidate"); 
       client.println("Connection: close");
       client.println();
 
-      // --- 1. GET VALUE (MODBUS REALTIME) - [FIXED FORMAT ARRAY] ---
+      // --- 1. GET VALUE 
       if (basePath == "/getValue")
       {
         if (xSemaphoreTake(jsonMutex, pdMS_TO_TICKS(100)))
@@ -1961,8 +1960,6 @@ void handleEthernetClient()
           JsonArray arr = docTemp.to<JsonArray>();
           JsonObject root = jsonSend.as<JsonObject>();
 
-          // [SOLUSI] Ubah format Object menjadi Array of Objects
-          // Dari {"Suhu": "25"} Menjadi [{"KodeSensor": "Suhu", "Value": "25"}]
           for (JsonPair kv : root)
           {
             if (String(kv.key().c_str()) == "-")
@@ -1979,7 +1976,7 @@ void handleEthernetClient()
         }
         else
         {
-          client.print("[]"); // Return array kosong jika sibuk
+          client.print("[]"); 
         }
       }
 
@@ -2516,8 +2513,6 @@ void Task_DataAcquisition(void *parameter)
               digitalInput[i].value++;
               updateJson("/runtimeData.json", String(i).c_str(), digitalInput[i].value);
             }
-            // Reset timer dilakukan di akhir loop atau dikontrol global,
-            // disini kita update timeElapsed agar siklus berulang.
             timeElapsed = millis();
           }
         }
@@ -2813,7 +2808,6 @@ void Task_DataLogger(void *parameter)
 
   while (true)
   {
-    // ✅ FEED WATCHDOG
     if (millis() - lastWatchdogFeed >= 5000)
     {
       esp_task_wdt_reset();
@@ -2883,7 +2877,6 @@ void Task_DataLogger(void *parameter)
 
         if (networkSettings.protocolMode == "HTTP")
         {
-          // ✅ TIMEOUT DINAIKKAN (Dari 1s -> 2s)
           if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(2000)))
           {
             sendDataHTTP(sendString, networkSettings.endpoint,
@@ -2929,7 +2922,6 @@ void Task_DataLogger(void *parameter)
       {
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(500)))
         {
-          // ✅ TIMEOUT DINAIKKAN
           if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(2000)))
           {
             saveToSD(dataToSave);
@@ -2953,7 +2945,7 @@ void Task_DataLogger(void *parameter)
       {
         if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(500)))
         {
-          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(3000))) // ✅ TIMEOUT DINAIKKAN
+          if (xSemaphoreTake(spiMutex, pdMS_TO_TICKS(3000))) 
           {
             sendBackupData();
             xSemaphoreGive(spiMutex);
@@ -2975,7 +2967,7 @@ void Task_DataLogger(void *parameter)
 void setup()
 {
   Serial.begin(115200);
-  delay(1000); // Tunggu sebentar biar serial stabil
+  delay(1000); 
 
   Serial.println("SYSTEM BOOT START");
   esp_task_wdt_init(60, true);
@@ -2998,9 +2990,7 @@ void setup()
     pinMode(digitalInput[i].pin, INPUT_PULLDOWN);
   }
 
-  // ========================================================================
   // 1. CREATE MUTEXES & QUEUES
-  // ========================================================================
   spiMutex = xSemaphoreCreateMutex();
   i2cMutex = xSemaphoreCreateMutex();
   sdMutex = xSemaphoreCreateMutex();
@@ -3017,9 +3007,7 @@ void setup()
       delay(1000);
   }
 
-  // ========================================================================
   // 2. READ CONFIG & INIT BASIC HARDWARE
-  // ========================================================================
   // Read configuration (SPIFFS)
   readConfig();
   printConfigurationDetails();
@@ -3046,8 +3034,6 @@ void setup()
     // Sync time logic here if needed...
   }
 
-  // ========================================================================
-  // 3. INIT SPI BUS (BAGIAN YANG ANDA TANYAKAN)
   // ========================================================================
   // Ini menggantikan blok "SD CARD" yang lama.
   // Tujuannya: Menyalakan SD Card dan Ethernet dengan urutan yang benar (Anti-Bentrok)
@@ -4710,7 +4696,7 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
     // Simpan ke Internal & SD Card
     saveToJson("/configNetwork.json", "network");
-    saveToSDConfig("/configNetwork.json", "network"); // <--- TAMBAHAN
+    saveToSDConfig("/configNetwork.json", "network");
   }
 
   // ========================================================================
@@ -4721,12 +4707,15 @@ void handleFormSubmit(AsyncWebServerRequest *request)
     networkSettings.erpUrl = request->arg("erpUrl");
     networkSettings.erpUsername = request->arg("erpUsername");
     networkSettings.erpPassword = request->arg("erpPassword");
-
+    Serial.print("ERP URL: ");
+    Serial.println(networkSettings.erpUrl);
+    Serial.print("ERP Username: ");
+    Serial.println(networkSettings.erpUsername);
+    Serial.print("ERP Password: ");
+    Serial.println(networkSettings.erpPassword);
     request->send(200, "text/plain", "Form data received");
-
-    // Simpan ke Internal & SD Card
     saveToJson("/configNetwork.json", "network");
-    saveToSDConfig("/configNetwork.json", "network"); // <--- TAMBAHAN
+    saveToSDConfig("/configNetwork.json", "network");
   }
 
   // ========================================================================
@@ -4789,7 +4778,7 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
   //   // Simpan ke Internal & SD Card
   //   saveToJson("/configDigital.json", "digital");
-  //   saveToSDConfig("/configDigital.json", "digital"); // <--- TAMBAHAN
+  //   saveToSDConfig("/configDigital.json", "digital"); // <--- 
   // }
 
   else if (request->hasArg("nameDI"))
@@ -4885,7 +4874,7 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
     // Simpan ke Internal & SD Card
     saveToJson("/configAnalog.json", "analog");
-    saveToSDConfig("/configAnalog.json", "analog"); // <--- TAMBAHAN
+    saveToSDConfig("/configAnalog.json", "analog"); // <--- 
   }
 
   // ========================================================================
@@ -4910,7 +4899,7 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
     // Simpan ke Internal & SD Card
     saveToJson("/modbusSetup.json", "modbusSetup");
-    saveToSDConfig("/modbusSetup.json", "modbusSetup"); // <--- TAMBAHAN
+    saveToSDConfig("/modbusSetup.json", "modbusSetup"); // <--- 
   }
 
   // ========================================================================
@@ -4941,7 +4930,7 @@ void handleFormSubmit(AsyncWebServerRequest *request)
 
     // Simpan ke Internal & SD Card
     saveToJson("/systemSettings.json", "systemSettings");
-    saveToSDConfig("/systemSettings.json", "systemSettings"); // <--- TAMBAHAN
+    saveToSDConfig("/systemSettings.json", "systemSettings"); // <--- 
   }
   else
   {
@@ -5015,7 +5004,6 @@ void saveToJson(const char *dir, const char *configType)
     {
       for (unsigned char i = 1; i <= jumlahInputAnalog; i++)
       {
-        // Membuat object seperti "AI1": { ... }
         JsonObject aiObj = docSave.createNestedObject("AI" + String(i));
         aiObj["name"] = analogInput[i].name;
         aiObj["inputType"] = analogInput[i].inputType;
@@ -5034,7 +5022,6 @@ void saveToJson(const char *dir, const char *configType)
     // ========================================================
     else if (type == "modbusSetup")
     {
-      // Copy langsung dari global jsonParam yang sudah diupdate
       docSave = jsonParam;
     }
     // ========================================================
@@ -5193,14 +5180,10 @@ void saveToSDConfig(const char *dir, const char *configType)
   }
 }
 
-// ============================================================================
 // FUNGSI DEBUG: TAMPILKAN SEMUA CONFIG DI SERIAL MONITOR
-// ============================================================================
 void printConfigurationDetails()
 {
-  Serial.println("\n==================================================");
   Serial.println("          CURRENT SYSTEM CONFIGURATION            ");
-  Serial.println("==================================================");
 
   // 1. DIGITAL INPUT CONFIG
   Serial.println("\n[ DIGITAL INPUT CONFIG ]");
